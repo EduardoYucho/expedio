@@ -23,8 +23,8 @@ const auth = useAuthStore()
 const modulos = useAcessoModulosStore()
 const route = useRoute()
 
-const CHAVE_RECOLHIDO = 'expedio.menu.recolhido'
-const CHAVE_FECHADOS = 'expedio.menu.fechados'
+const CHAVE_RECOLHIDO = 'plumb.menu.recolhido'
+const CHAVE_FECHADOS = 'plumb.menu.fechados'
 
 function ler(chave) {
   try {
@@ -202,7 +202,7 @@ const ICONES = {
         <circle cx="16" cy="16" r="13" fill="var(--color-cartao)" stroke="var(--color-tinta)" stroke-width="3" />
         <path d="M16 9v7l5 3" stroke="var(--color-carimbo)" stroke-width="3" fill="none" stroke-linecap="round" />
       </svg>
-      <span class="truncate text-[0.95rem] font-bold tracking-tight" :class="soIcones ? 'lg:hidden' : ''">Expedio</span>
+      <span class="truncate text-[0.95rem] font-bold tracking-tight" :class="soIcones ? 'lg:hidden' : ''">Plumb</span>
       <button
         type="button"
         class="ml-auto grid size-8 place-items-center rounded-[3px] text-tinta-suave hover:bg-papel-escuro lg:hidden"

@@ -47,7 +47,7 @@ async function entrar() {
     <form class="cartao perfurado w-full max-w-sm animate-surgir py-6 pr-6" novalidate @submit.prevent="entrar">
       <p class="rotulo text-carimbo">Ponto · atendimentos · suporte</p>
       <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%]">
-        Expedio
+        Plumb
       </h1>
       <p class="mt-2 text-sm text-tinta-suave">Entre com seu usuário para acessar o painel ou a auditoria.</p>
 

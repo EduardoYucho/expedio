@@ -110,7 +110,7 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
             <p class="mt-2 font-semibold text-carimbo">Trancado: a chave não está neste computador.</p>
             <p class="mt-1 text-sm text-tinta-suave">
               Acontece num computador novo ou depois de restaurar um backup. Se a cópia embrulhada voltou com o backup
-              (<code>expedio restaurar</code>), digite a frase de recuperação.
+              (<code>plumb restaurar</code>), digite a frase de recuperação.
             </p>
             <form class="mt-3 flex flex-wrap items-end gap-2" @submit.prevent="restaurar">
               <label class="min-w-[18rem] flex-1"><span class="rotulo">Frase de recuperação</span>
