@@ -7,6 +7,7 @@ spring:
       - optional:classpath:atendimento.yml
       - optional:classpath:fiscal.yml
       - optional:classpath:backup-clientes.yml
+      - optional:classpath:clientes.yml
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/expedio}
     username: ${DB_USER:expedio}

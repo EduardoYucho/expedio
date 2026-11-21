@@ -808,6 +808,53 @@ errado, voltar ao início de um arquivo, retomar depois de reiniciar, nada do ba
 página do cliente e do navegador de quem recebe com os mesmos módulos JS do sistema (leitura, `.tar`, SHA-256, zstd em
 wasm e o montador), contra o sistema rodando (`SistemaDeTeste` sobe um com PostgreSQL temporário).
 
+## Clientes
+
+Menu **Suporte › Clientes**: a ficha de cada cliente, no lugar das observações em texto livre do sistema de chamados.
+
+- **Ficha**: grupo (rede de lojas), situação ativo/inativo, cidade, CNPJ, código no sistema de chamados, **alertas** em
+  faixa vermelha no topo ("nunca excluam nada…"), **contatos** (quem autoriza mudanças), **máquinas** (servidor
+  central, caixa…, com a pasta do sistema), **acessos** (AnyDesk, UltraViewer, Radmin, WTS, TeamViewer, VPN) e
+  **anotações** com autor e data. Uma busca só acha por nome, cidade, grupo, contato, telefone ou ID do AnyDesk.
+- **Acessos**: copiar o ID, **Abrir no AnyDesk**, **Baixar .rdp** (endereço e porta, sem a senha) e **Colar do sistema de
+  chamados**: o texto colado vira sugestões de acesso (ID, porta, usuário, senha) para conferir antes de gravar.
+- **Nova coleta de backup**: abre os Backups de clientes com o cliente escolhido (ou já no formulário, com a pasta do
+  sistema da ficha).
+
+### O cofre das senhas
+
+- As senhas ficam no banco **só cifradas** (AES-256-GCM, um vetor por senha e o id do acesso como dado associado). A
+  chave do cofre é um arquivo em `~/.expedio/clientes/chave-do-cofre` (`clientes.pasta`), lido só pelo usuário do
+  serviço. Nenhuma lista, ficha, busca ou log traz senha: ela sai só por `POST /api/v1/clientes/cofre/acessos/{id}/senha`,
+  sem cache.
+- **Código do celular**: para mostrar, copiar ou alterar uma senha, a pessoa abre o cofre com o código de 6 dígitos de
+  um app autenticador (Google ou Microsoft Authenticator; TOTP). Na primeira vez a tela mostra o QR code. O cofre fica
+  aberto por 10 minutos (`clientes.cofre.minutos-aberto`) **só naquela aba** (o token fica na memória, nunca no
+  navegador); o mesmo código não vale duas vezes; 5 códigos errados bloqueiam por 15 minutos.
+- **Registro**: abrir o cofre, mostrar, copiar, alterar e apagar senha, códigos errados e as tarefas de administração
+  ficam registrados (quem, quando, de qual IP), na ficha (aba Uso das senhas) e em Clientes › Cofre.
+- **Frase de recuperação** (Clientes › Cofre): embrulha a chave (PBKDF2-SHA256 com 600 mil iterações + AES-GCM). O
+  `expedio backup` copia **só a chave embrulhada** (`clientes-chave-recuperacao`), nunca a crua: um backup vazado não
+  abre as senhas. Num computador novo (ou sem o arquivo da chave), o cofre fica **trancado** — nunca cria uma chave nova
+  por cima de senhas existentes — até alguém com `clientes.administrar` digitar a frase. Sem frase definida, o backup
+  avisa. **Guarde a frase fora do computador**: sem ela, as senhas não voltam.
+- Copiar senha esvazia a área de transferência em 30 segundos onde o navegador deixa (https ou o próprio computador do
+  servidor); pelo http da Radmin, não.
+
+| Permissão | O que libera |
+|---|---|
+| `clientes.ver` | a ficha (sem as senhas) |
+| `clientes.editar` | cadastrar e alterar a ficha |
+| `clientes.senhas` | mostrar, copiar e alterar senhas (com o código do celular) |
+| `clientes.administrar` | uso das senhas, zerar o autenticador de alguém, frase de recuperação, apagar cliente |
+
+O perfil Usuário ganha ver e editar na V20; **as senhas não entram em perfil nenhum**: libere `clientes.senhas` para
+cada pessoa em Usuários.
+
+Testes: `TotpTest` (vetores do RFC 6238), `ChaveDoCofreEmArquivoTest` (cifra, chave trancada, frase de recuperação) e
+`ClientesNoBancoTest` (ficha, regras, permissões, cofre, código repetido, bloqueio, nenhuma senha na ficha nem na
+busca), no PostgreSQL temporário.
+
 ## Erros, protocolo e logs
 
 **Mensagens.** Nenhuma falha chega à tela como texto técnico. O servidor responde sempre com uma frase em

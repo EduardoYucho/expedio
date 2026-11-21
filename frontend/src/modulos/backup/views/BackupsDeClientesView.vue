@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { useAuthStore } from '@/stores/auth'
 import { backupApi } from '@/modulos/backup/api'
@@ -55,6 +56,25 @@ const abertos = reactive(new Set())
 const tunel = computed(() => estado.value?.tunel ?? null)
 const tunelOk = computed(() => tunel.value && (tunel.value.modo === 'ATIVO' || tunel.value.modo === 'FIXO'))
 
+/**
+ * Vindo da ficha do cliente (Clientes › Nova coleta de backup): o cliente já cadastrado aqui fica escolhido; o que
+ * ainda não está, entra no formulário de cliente com a pasta do sistema da ficha, para conferir e salvar.
+ */
+const route = useRoute()
+let daFichaAplicado = false
+function trazerDaFicha() {
+  const nome = typeof route.query.cliente === 'string' ? route.query.cliente.trim() : ''
+  if (daFichaAplicado || !nome) return
+  daFichaAplicado = true
+  const existente = clientes.value.find((c) => c.nome.toLowerCase() === nome.toLowerCase())
+  if (existente) {
+    clienteEscolhido.value = existente.nome
+  } else {
+    formulario.nome = nome.slice(0, 120)
+    formulario.pastaSistema = typeof route.query.pasta === 'string' ? route.query.pasta : ''
+  }
+}
+
 let versaoAoAbrir = null
 const desatualizada = ref(false)
 const recarregar = () => window.location.reload()
@@ -70,6 +90,7 @@ async function carregar() {
     estado.value = e
     coletas.value = lista ?? []
     clientes.value = cl ?? []
+    trazerDaFicha()
     if (!clienteEscolhido.value && clientes.value.length) clienteEscolhido.value = clientes.value[0].nome
     erro.value = null
     if (podeEscolher) recepcao.acompanhar(coletas.value)

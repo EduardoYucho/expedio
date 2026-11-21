@@ -129,6 +129,22 @@ class ArquiteturaModulosTest {
             .because("os backups de clientes podem ser retirados sem mexer nos outros módulos")
             .allowEmptyShould(true);
 
+    @ArchTest
+    static final ArchRule os_clientes_nao_conhecem_os_outros_modulos = noClasses()
+            .that().resideInAPackage(MODULOS + ".clientes..")
+            .should().dependOnClassesThat().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..",
+                    MODULOS + ".fiscal..", MODULOS + ".backup..")
+            .because("os clientes são um módulo à parte (a ligação com os backups é feita pela tela)")
+            .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule os_outros_modulos_nao_conhecem_os_clientes = noClasses()
+            .that().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..", MODULOS + ".fiscal..",
+                    MODULOS + ".backup..")
+            .should().dependOnClassesThat().resideInAPackage(MODULOS + ".clientes..")
+            .because("o cofre dos clientes não pode ser alcançado por outro módulo")
+            .allowEmptyShould(true);
+
     static ArchRule regraDosModulos() {
         return noClasses()
                 .that().resideInAPackage(MODULOS + "..")

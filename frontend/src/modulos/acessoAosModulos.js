@@ -12,6 +12,10 @@ export const FISCAL_VER = 'fiscal.ver'
 export const FISCAL_CONFIGURAR = 'fiscal.configurar'
 export const BACKUP_COLETAR = 'backup.coletar'
 export const BACKUP_APAGAR = 'backup.apagar'
+export const CLIENTES_VER = 'clientes.ver'
+export const CLIENTES_EDITAR = 'clientes.editar'
+export const CLIENTES_SENHAS = 'clientes.senhas'
+export const CLIENTES_ADMINISTRAR = 'clientes.administrar'
 
 /**
  * O que a pessoa logada pode usar nos módulos (atendimentos, base de conhecimento, monitor fiscal). Vem das permissões dela
@@ -27,6 +31,10 @@ export const useAcessoModulosStore = defineStore('acessoModulos', () => {
   const fiscal = computed(() => auth.pode(FISCAL_VER))
   const configurarFiscal = computed(() => auth.pode(FISCAL_CONFIGURAR))
   const backup = computed(() => auth.pode(BACKUP_COLETAR))
+  const clientes = computed(() => auth.pode(CLIENTES_VER))
+  const editarClientes = computed(() => auth.pode(CLIENTES_EDITAR))
+  const senhasDosClientes = computed(() => auth.pode(CLIENTES_SENHAS))
+  const administrarClientes = computed(() => auth.pode(CLIENTES_ADMINISTRAR))
   /** Os textos são feitos pela IA local deste computador (sem chave do Gemini, sem cota). */
   const iaLocal = ref(true)
   /** Já perguntou ao servidor ao menos uma vez nesta sessão. */
@@ -51,5 +59,5 @@ export const useAcessoModulosStore = defineStore('acessoModulos', () => {
     erro.value = null
   }
 
-  return { gerador, espaco, pesquisar, curar, fiscal, configurarFiscal, backup, iaLocal, carregado, erro, carregar, limpar }
+  return { gerador, espaco, pesquisar, curar, fiscal, configurarFiscal, backup, clientes, editarClientes, senhasDosClientes, administrarClientes, iaLocal, carregado, erro, carregar, limpar }
 })
