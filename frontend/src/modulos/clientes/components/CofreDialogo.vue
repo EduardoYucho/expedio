@@ -112,7 +112,7 @@ async function confirmar() {
         </div>
       </template>
       <p v-else class="mt-2 text-sm text-tinta-suave">
-        Abra o app autenticador e digite o código do <b>Expedio</b>. O cofre fica aberto por alguns minutos nesta aba.
+        Abra o app autenticador e digite o código do <b>Plumb</b>. O cofre fica aberto por alguns minutos nesta aba.
       </p>
 
       <label v-if="estado?.chave !== 'TRANCADA' && (!ativando || novo)" class="mt-4 block">

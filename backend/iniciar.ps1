@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Sobe o back-end do Expedio pelo terminal (PowerShell).
+  Sobe o back-end do Plumb pelo terminal (PowerShell).
 
 .DESCRIPTION
   1. Carrega as variáveis de ambiente de ambiente.local.ps1 (criado na primeira execução,

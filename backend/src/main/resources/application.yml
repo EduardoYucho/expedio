@@ -1,6 +1,6 @@
 spring:
   application:
-    name: expedio
+    name: plumb
   config:
     # módulos (atendimentos e base de conhecimento; monitor fiscal; backups de clientes): configuração em arquivo próprio
     import:
@@ -9,9 +9,9 @@ spring:
       - optional:classpath:backup-clientes.yml
       - optional:classpath:clientes.yml
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/expedio}
-    username: ${DB_USER:expedio}
-    password: ${DB_PASSWORD:expedio}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/plumb}
+    username: ${DB_USER:plumb}
+    password: ${DB_PASSWORD:plumb}
   jpa:
     open-in-view: false
     hibernate:
@@ -37,7 +37,7 @@ server:
   tomcat:
     max-swallow-size: -1         # envio grande demais recebe a resposta 413 em vez de a conexão cair
 
-expedio:
+plumb:
   fuso-horario: America/Sao_Paulo
   tolerancia-minutos: 5
   grade:
@@ -57,11 +57,11 @@ expedio:
 
   # Importação automática dos comprovantes (PDF) baixados do Ponto Fácil
   importacao-pdf:
-    habilitado: ${EXPEDIO_PDF_HABILITADO:true}
+    habilitado: ${PLUMB_PDF_HABILITADO:true}
     # Cada usuário escolhe a própria pasta em "Minha conta" (local ou de rede, ex.: //192.168.0.10/Ponto).
     # Este valor só é usado uma vez: na atualização para vários usuários, se ninguém tiver pasta, ela passa
     # a ser a pasta do primeiro administrador.
-    diretorio: ${EXPEDIO_PDF_DIR:}
+    diretorio: ${PLUMB_PDF_DIR:}
     processar-existentes: true      # ao iniciar, importa PDFs que já estavam na pasta (sem duplicar)
     varredura-periodica: 30s        # confere a pasta mesmo sem aviso do Windows (pasta de rede); 0 desliga
     intervalo-reconexao: 15s        # pasta inacessível (VPN caiu, outro PC desligado): tenta de novo
@@ -74,42 +74,42 @@ expedio:
 
   # Arquivo dos PDFs de comprovante (fora do banco): <diretorio>/<ano>/<mês>/comprovante_<uuid>.pdf
   armazenamento:
-    diretorio: ${EXPEDIO_ARMAZENAMENTO_DIR:${user.home}/.expedio/comprovantes}
+    diretorio: ${PLUMB_ARMAZENAMENTO_DIR:${user.home}/.plumb/comprovantes}
     url-base: /api/comprovantes
 
-  # Backup automático (no Windows, pelo comando "expedio"): todo dia, depois do horário, se ainda não houver um
-  # backup do dia na pasta (o do "expedio atualizar" conta), a aplicação roda "expedio backup diario". Se falhar,
+  # Backup automático (no Windows, pelo comando "plumb"): todo dia, depois do horário, se ainda não houver um
+  # backup do dia na pasta (o do "plumb atualizar" conta), a aplicação roda "plumb backup diario". Se falhar,
   # tenta de novo a cada hora e avisa no sino de quem vê os logs. A guarda e a cópia fora do PC são do comando
   # (README, seção Backup).
   backup:
     automatico: true
     horario: "12:15"
-    pasta: ${EXPEDIO_BACKUP_DIR:${user.home}/.expedio/backups}
-    script: ${user.home}/.expedio/servico/bin/expedio.ps1
+    pasta: ${PLUMB_BACKUP_DIR:${user.home}/.plumb/backups}
+    script: ${user.home}/.plumb/servico/bin/plumb.ps1
     verificacao: 15m
-    # Cópia fora do PC (outro disco ou pen drive), lida pelo comando "expedio": vazio = desligada.
-    # Ex.: "E:/Backups" (os backups vão para E:/Backups/Expedio/backups e os PDFs para .../comprovantes)
+    # Cópia fora do PC (outro disco ou pen drive), lida pelo comando "plumb": vazio = desligada.
+    # Ex.: "E:/Backups" (os backups vão para E:/Backups/Plumb/backups e os PDFs para .../comprovantes)
     copia:
-      pasta: ${EXPEDIO_BACKUP_COPIA:}
+      pasta: ${PLUMB_BACKUP_COPIA:}
 
   # Planilha de conferência no Google Sheets (opcional). O administrador envia pela tela (Usuários) a chave de
   # uma conta de serviço do Google Cloud; cada pessoa compartilha a planilha dela com o e-mail dessa conta e
   # cola o link em "Minha conta". A chave fica neste arquivo, fora do banco de dados.
   google:
-    credencial: ${EXPEDIO_GOOGLE_CREDENCIAL:}   # vazio = ~/.expedio/google/conta-de-servico.json
+    credencial: ${PLUMB_GOOGLE_CREDENCIAL:}   # vazio = ~/.plumb/google/conta-de-servico.json
     espera: 4s                                # junta mudanças seguidas (vários PDFs) numa gravação só
 
   # Logs: além do log geral (logging.file.name), cada linha vai para um arquivo por usuário e por hora em
   # <diretorio>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log ("sistema" = o que não é de uma pessoa).
   logs:
-    diretorio: ${EXPEDIO_LOGS_DIR:${user.home}/.expedio/logs}
+    diretorio: ${PLUMB_LOGS_DIR:${user.home}/.plumb/logs}
     dias: 30                        # os arquivos por usuário mais antigos são apagados
 
   seguranca:
     jwt:
-      segredo: ${EXPEDIO_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida
+      segredo: ${PLUMB_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida
       expiracao: 8h
-      emissor: expedio
+      emissor: plumb
     # Criados na primeira subida, se não existirem. Senha vazia = gerada e exibida uma vez no log.
     # Para usar outros logins/nomes, redefina a lista inteira em config/application.yml.
     # perfis: os do sistema (ROLE_ADMIN = Administrador, ROLE_USER = Usuário, ROLE_VIEWER = Coordenador);
@@ -117,18 +117,18 @@ expedio:
     usuarios-iniciais:
       - login: admin
         nome: Administrador
-        senha: ${EXPEDIO_ADMIN_SENHA:}
+        senha: ${PLUMB_ADMIN_SENHA:}
         perfis: [ROLE_ADMIN]
       - login: coordenacao
         nome: Coordenação
-        senha: ${EXPEDIO_VIEWER_SENHA:}
+        senha: ${PLUMB_VIEWER_SENHA:}
         perfis: [ROLE_VIEWER]
 
 logging:
   pattern:
     correlation: "[%X{usuario:-sistema}|%X{protocolo:--}] "   # de quem é a linha e o protocolo da requisição
   level:
-    br.com.expedio.infrastructure.importacao: INFO
+    br.com.plumb.infrastructure.importacao: INFO
     # As fontes dos PDFs (comprovantes, conversas do Digisac) geram centenas de avisos por semana que não mudam a
     # leitura ("No Unicode mapping...", "Using fallback font..."): só os erros delas vão para o log.
     org.apache.pdfbox.pdmodel.font: ERROR

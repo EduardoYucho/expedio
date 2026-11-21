@@ -7,9 +7,9 @@
  * endereço do sistema (veja {@link seletorDisponivel}).
  */
 
-const BANCO = 'expedio-backups'
-/** O nome de antes (o sistema se chamava Conferência de Ponto): as pastas guardadas nele passam para o novo. */
-const BANCO_ANTIGO = 'conferencia-ponto-backups'
+const BANCO = 'plumb-backups'
+/** Os nomes de antes (o sistema já se chamou Conferência de Ponto e Expedio): as pastas guardadas neles passam para o novo. */
+const BANCOS_ANTIGOS = ['conferencia-ponto-backups', 'expedio-backups']
 const PADRAO = 'destino-padrao'
 
 function abrir(nome = BANCO) {
@@ -23,12 +23,17 @@ function abrir(nome = BANCO) {
   })
 }
 
-/** Traz as pastas lembradas com o nome antigo (uma vez; depois apaga o banco antigo). */
+/** Traz as pastas lembradas com os nomes antigos (uma vez; depois apaga os bancos antigos). */
 async function trazerDoNomeAntigo() {
   if (typeof indexedDB?.databases !== 'function') return
   const bancos = await indexedDB.databases()
-  if (!bancos.some((b) => b.name === BANCO_ANTIGO)) return
-  const antigo = await abrir(BANCO_ANTIGO)
+  for (const nome of BANCOS_ANTIGOS) {
+    if (bancos.some((b) => b.name === nome)) await trazerDo(nome)
+  }
+}
+
+async function trazerDo(nomeAntigo) {
+  const antigo = await abrir(nomeAntigo)
   let itens
   try {
     itens = await new Promise((resolver, rejeitar) => {
@@ -53,7 +58,7 @@ async function trazerDoNomeAntigo() {
   } finally {
     novo.close()
   }
-  indexedDB.deleteDatabase(BANCO_ANTIGO)
+  indexedDB.deleteDatabase(nomeAntigo)
 }
 
 let migracao = null
