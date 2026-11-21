@@ -83,14 +83,14 @@ class MigracaoDosPerfisDeAcessoTest {
             assertThat(p.permissoes()).isEmpty();
         });
         assertThat(acessos.perfilDoSistema(Perfil.ROLE_USER)).get()
-                .as("fiscal.ver veio na V18")
+                .as("fiscal.ver veio na V18; clientes.ver e clientes.editar, na V20 (as senhas, em perfil nenhum)")
                 .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO,
-                        PermissoesDoPonto.LANCAR, PermissoesDoMonitor.VER));
+                        PermissoesDoPonto.LANCAR, PermissoesDoMonitor.VER, "clientes.ver", "clientes.editar"));
         assertThat(acessos.perfilDoSistema(Perfil.ROLE_VIEWER)).get().as("ponto.conferir veio na V17; fiscal.ver, na V18")
                 .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE,
                         PermissoesDoPonto.CONFERIR, PermissoesDoMonitor.VER));
         assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso").query(Integer.class).single())
-                .as("2 da V17 e 2 da V18").isEqualTo(4);
+                .as("2 da V17, 2 da V18 e 1 da V20").isEqualTo(5);
         assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso WHERE descricao LIKE '%Ver o monitor fiscal%'")
                 .query(Integer.class).single()).isEqualTo(2);
     }

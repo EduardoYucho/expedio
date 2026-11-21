@@ -1012,8 +1012,20 @@ function Fazer-Backup([string] $motivo, [string[]] $preservar = @()) {
             Copy-Item -LiteralPath $chaveMestra -Destination (Join-Path $parcial 'chave-mestra')
             $arquivos += 'chave-mestra'
         }
+        # Cofre dos clientes: só a cópia da chave embrulhada pela frase de recuperação (a chave crua nunca sai daqui:
+        # o backup sozinho não abre as senhas)
+        $pastaClientes = Configuracao-Servico 'clientes.pasta' '${user.home}/.expedio/clientes'
+        $embrulhada = Join-Path $pastaClientes 'chave-do-cofre.recuperacao'
+        if (Test-Path -LiteralPath $embrulhada -PathType Leaf) {
+            Passo 'Chave do cofre dos clientes (embrulhada pela frase de recuperação)'
+            Copy-Item -LiteralPath $embrulhada -Destination (Join-Path $parcial 'clientes-chave-recuperacao')
+            $arquivos += 'clientes-chave-recuperacao'
+        } elseif (Test-Path -LiteralPath (Join-Path $pastaClientes 'chave-do-cofre') -PathType Leaf) {
+            Aviso ('Cofre dos clientes sem frase de recuperação: defina em Clientes > Cofre. Sem ela, as senhas dos ' +
+                   'clientes não voltam de um backup em outro computador.')
+        }
 
-        $tamanho = (Get-ChildItem -LiteralPath $parcial -Recurse -File | Measure-Object Length -Sum).Sum
+        $tamanho =(Get-ChildItem -LiteralPath $parcial -Recurse -File | Measure-Object Length -Sum).Sum
         $meta = [ordered]@{
             data     = (Get-Date).ToString('s')
             motivo   = $rotulo
@@ -1180,7 +1192,10 @@ function Restaurar-Arquivos($backup) {
     $itens = @(
         [pscustomobject]@{ Nome = 'atendimentos-base'; Destino = (Join-Path $pastaAtendimentos 'base'); Rotulo = 'Imagens da base de conhecimento' },
         [pscustomobject]@{ Nome = 'chave-mestra'; Rotulo = 'Chave mestra das chaves do Gemini'
-                           Destino = (Configuracao-Servico 'atendimento.chave-mestra.arquivo' (Join-Path $pastaAtendimentos 'chave-mestra')) }
+                           Destino = (Configuracao-Servico 'atendimento.chave-mestra.arquivo' (Join-Path $pastaAtendimentos 'chave-mestra')) },
+        # a chave do cofre dos clientes volta embrulhada: a tela Clientes > Cofre a abre com a frase de recuperação
+        [pscustomobject]@{ Nome = 'clientes-chave-recuperacao'; Rotulo = 'Chave do cofre dos clientes (embrulhada)'
+                           Destino = (Join-Path (Configuracao-Servico 'clientes.pasta' '${user.home}/.expedio/clientes') 'chave-do-cofre.recuperacao') }
     )
     foreach ($item in $itens) {
         $doBackup = Join-Path $backup.FullName $item.Nome

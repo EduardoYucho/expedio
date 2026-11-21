@@ -1,0 +1,15 @@
+# Configuração dos Clientes (importada pelo application.yml).
+# Os valores desta máquina vão em config/application.yml (fora do Git): lá eles têm prioridade sobre os daqui.
+#
+# A ficha de cada cliente fica no banco (schema clientes). As senhas dos acessos ficam no banco só cifradas: a chave
+# do cofre é um arquivo nesta pasta, lido só pelo usuário do serviço. O "expedio backup" copia apenas a cópia da
+# chave embrulhada pela frase de recuperação (definida na tela Clientes > Cofre), nunca a chave crua.
+
+clientes:
+  pasta: ${user.home}/.expedio/clientes
+  cofre:
+    # Depois do código do celular, o cofre fica aberto por este tempo (1 a 60)
+    minutos-aberto: 10
+    # Códigos errados seguidos que bloqueiam a pessoa (e por quanto tempo)
+    tentativas: 5
+    minutos-de-bloqueio: 15

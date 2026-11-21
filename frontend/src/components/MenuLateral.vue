@@ -10,7 +10,7 @@ import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
  * No computador, fica aberto (com os nomes) ou recolhido (só os ícones; o grupo abre os submenus num menu ao lado),
  * e o navegador lembra a escolha e os grupos fechados. No celular, abre por cima da tela pelo botão do alto.
  * Cada item aparece só com a permissão da tela (a soma dos perfis da pessoa com os ajustes só dela): o Ponto para
- * quem tem o próprio ponto ou consulta o da equipe, Atendimentos, Base e Suporte (monitor fiscal, backups de clientes) para quem tem a
+ * quem tem o próprio ponto ou consulta o da equipe, Atendimentos, Base e Suporte (clientes, monitor fiscal, backups de clientes) para quem tem a
  * permissão do módulo, e cada item da Administração com a permissão dele.
  */
 const props = defineProps({
@@ -94,11 +94,12 @@ const grupos = computed(() =>
       icone: 'livro',
       itens: [{ nome: 'base-conhecimento', rotulo: 'Pesquisar', tambem: ['registro-da-base'] }],
     },
-    (modulos.fiscal || modulos.backup) && {
+    (modulos.fiscal || modulos.backup || modulos.clientes) && {
       id: 'suporte',
       rotulo: 'Suporte',
       icone: 'pulso',
       itens: [
+        modulos.clientes && { nome: 'clientes', rotulo: 'Clientes' },
         modulos.fiscal && { nome: 'monitor-fiscal', rotulo: 'Monitor fiscal' },
         modulos.backup && { nome: 'backups-clientes', rotulo: 'Backups de clientes' },
       ].filter(Boolean),
