@@ -158,6 +158,19 @@ function linkDe(c) {
   return soNestaRede.value && c.token ? `${origem}/c/${c.token}#k=${chave}` : null
 }
 
+/**
+ * O comando do coletor nativo (para colar no PowerShell do cliente): baixa o coletor do próprio sistema, pelo túnel, e
+ * roda com o link (e a chave) desta coleta. Lê com a cópia de sombra (arquivos em uso vêm inteiros) e compacta em
+ * todos os núcleos.
+ */
+function comandoDe(c) {
+  const link = linkDe(c)
+  if (!link) return null
+  const base = new URL(link).origin
+  return "[Net.ServicePointManager]::SecurityProtocol=3072; $w=New-Object Net.WebClient; $w.Encoding=[Text.Encoding]::UTF8; "
+    + `& ([scriptblock]::Create($w.DownloadString('${base}/c/_/nativo/coletor.ps1'))) -Link '${link}'`
+}
+
 /** A chave (e o link completo) só existe no navegador que gerou o link. */
 const semChaveAqui = (c) => !recepcao.estados[c.id]?.chave
 
@@ -165,6 +178,7 @@ const semChaveAqui = (c) => !recepcao.estados[c.id]?.chave
 const linkGeradoId = ref(null)
 const coletaGerada = computed(() => coletas.value.find((c) => c.id === linkGeradoId.value) ?? null)
 const linkAtual = computed(() => (coletaGerada.value ? linkDe(coletaGerada.value) : null))
+const comandoAtual = computed(() => (coletaGerada.value ? comandoDe(coletaGerada.value) : null))
 
 function reiniciarTunel() {
   if (window.confirm('Abrir outro túnel muda o endereço público: os links já enviados deixam de abrir e precisam ser copiados de novo. Continuar?')) {
@@ -339,7 +353,7 @@ onBeforeUnmount(() => clearInterval(relogio))
   <div class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
     <header class="flex flex-wrap items-end gap-x-4 gap-y-3 border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <div class="min-w-0 flex-1">
-        <p class="rotulo">Suporte · o backup das pastas do sistema, pelo navegador do cliente</p>
+        <p class="rotulo">Suporte · o backup das pastas do sistema, pelo PowerShell ou pelo navegador do cliente</p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Backups de clientes</h1>
       </div>
     </header>
@@ -416,12 +430,24 @@ onBeforeUnmount(() => clearInterval(relogio))
               <span v-if="podeEscolher && !destino" class="text-sm text-tinta-suave">Escolha antes a pasta deste computador (acima).</span>
             </div>
             <div v-if="coletaGerada && ['AGUARDANDO', 'RECEBENDO'].includes(coletaGerada.situacao)" class="mt-3 border-t border-linha/70 pt-3 text-sm">
-              <p>Abra no <strong>Chrome ou Edge</strong> do cliente (pelo WTS no servidor ou pelo UltraViewer). O backup vai para a pasta <strong class="font-mono">{{ destino?.name }}</strong> deste computador.</p>
+              <p>O backup vai para a pasta <strong class="font-mono">{{ destino?.name }}</strong> deste computador.</p>
               <p v-if="!linkAtual" class="mt-2 text-alerta" aria-live="polite">Abrindo o túnel… o link aparece aqui em instantes (não mande nenhum outro antes).</p>
-              <div v-else class="mt-2 flex flex-wrap items-center gap-2">
-                <input :value="linkAtual" readonly class="campo min-w-0 flex-1 font-mono text-[13px]" aria-label="Link de coleta" @focus="$event.target.select()" />
-                <button type="button" class="botao-secundario" @click="copiar(linkAtual, 'novo')">{{ copiado === 'novo' ? 'Copiado' : 'Copiar' }}</button>
-              </div>
+              <template v-else>
+                <p class="mt-2">
+                  <strong>Pelo PowerShell (recomendado):</strong> no computador onde fica a pasta do sistema (pelo AnyDesk ou WTS), abra o
+                  <strong>PowerShell como administrador</strong> (botão direito no Iniciar → Terminal (Admin) ou Windows PowerShell (Admin)),
+                  cole o comando e tecle Enter. Leva também os arquivos em uso pelo sistema e compacta em todos os núcleos.
+                </p>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <input :value="comandoAtual" readonly class="campo min-w-0 flex-1 font-mono text-[13px]" aria-label="Comando do coletor" @focus="$event.target.select()" />
+                  <button type="button" class="botao-primario" @click="copiar(comandoAtual, 'comando')">{{ copiado === 'comando' ? 'Copiado' : 'Copiar comando' }}</button>
+                </div>
+                <p class="mt-3"><strong>Ou pelo navegador:</strong> abra o link no Chrome ou Edge do cliente (arquivos em uso pelo sistema podem ficar de fora).</p>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <input :value="linkAtual" readonly class="campo min-w-0 flex-1 font-mono text-[13px]" aria-label="Link de coleta" @focus="$event.target.select()" />
+                  <button type="button" class="botao-secundario" @click="copiar(linkAtual, 'novo')">{{ copiado === 'novo' ? 'Copiado' : 'Copiar link' }}</button>
+                </div>
+              </template>
               <p class="mt-1 text-xs text-tinta-suave">
                 <template v-if="coletaGerada.link">Vale por {{ estado.validadeLinkHoras }} h sem uso. Se o sistema reiniciar, o endereço do túnel muda: copie o link de novo aqui (a coleta continua de onde parou).</template>
                 <template v-else-if="soNestaRede">Sem túnel: este link só abre nesta rede.</template>
@@ -509,7 +535,10 @@ onBeforeUnmount(() => clearInterval(relogio))
 
                 <div class="mt-3 flex flex-wrap gap-2">
                   <template v-if="['AGUARDANDO', 'RECEBENDO'].includes(c.situacao) && c.token">
-                    <button type="button" class="botao-primario" :disabled="!linkDe(c)" @click="copiar(linkDe(c), c.id)">
+                    <button v-if="comandoDe(c)" type="button" class="botao-primario" @click="copiar(comandoDe(c), `${c.id}:comando`)">
+                      {{ copiado === `${c.id}:comando` ? 'Copiado' : 'Copiar comando' }}
+                    </button>
+                    <button type="button" :class="comandoDe(c) ? 'botao-secundario' : 'botao-primario'" :disabled="!linkDe(c)" @click="copiar(linkDe(c), c.id)">
                       {{ copiado === c.id ? 'Copiado' : semChaveAqui(c) ? 'Link só no navegador que o gerou' : c.link ? 'Copiar link' : soNestaRede ? 'Copiar link (só nesta rede)' : 'Esperando o túnel…' }}
                     </button>
                     <button v-if="c.minha && c.vinculada" type="button" class="botao-secundario" :disabled="ocupado" title="A coleta fica presa ao computador do cliente onde começou" @click="liberar(c)">Liberar para outro computador</button>

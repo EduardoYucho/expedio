@@ -70,7 +70,8 @@ export async function* blocos({ entradas, tamanhoBloco, inicio = null, naoLidosI
     if (indice < 0) indice = entradas.length;
     if (inicio.offset > 0) {
       const entrada = entradas[indice];
-      if (!entrada || entrada.caminho !== inicio.caminho || entrada.tipo !== 'arquivo') {
+      // sem o estado do SHA-256 (parou no coletor nativo): volta ao começo do arquivo
+      if (!entrada || entrada.caminho !== inicio.caminho || entrada.tipo !== 'arquivo' || !inicio.sha) {
         throw new PrecisaVoltar(inicio.caminho);
       }
       retomada = inicio;

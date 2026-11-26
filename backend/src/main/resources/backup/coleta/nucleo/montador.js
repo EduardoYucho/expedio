@@ -17,43 +17,65 @@ const LIMITE_LISTA = 200;
  * extrair depois sem ler o arquivo inteiro).
  */
 export async function montar({ quantidade, lerParte, lerFinal, escrever, descompactar, aoAvancar = () => {} }) {
-  const leitor = new LeitorDeTar();
-  const calculados = new Map();
-  let manifestoBytes = null;
-  let atual = null;
-  let bytesConferidos = 0;
-  let tamanhoArquivo = 0;
-  const quadros = [];
-
-  const processar = (eventos) => {
-    for (const e of eventos) {
-      if (e.tipo === 'inicio') {
-        atual = { nome: e.nome, entrada: e.entrada, sha: e.entrada === 'arquivo' ? new Sha256() : null, tamanho: 0, partes: [] };
-      } else if (e.tipo === 'dados') {
-        if (atual.nome === MANIFESTO) atual.partes.push(e.bytes);
-        else if (atual.sha) atual.sha.atualizar(e.bytes);
-        atual.tamanho += e.bytes.length;
-        bytesConferidos += e.bytes.length;
-      } else if (e.tipo === 'fim') {
-        if (atual.nome === MANIFESTO) {
-          manifestoBytes = juntar(atual.partes);
-        } else if (atual.entrada === 'arquivo') {
-          calculados.set(atual.nome, { sha: atual.sha.hex(), tamanho: atual.tamanho });
-        }
-        atual = null;
-      }
-    }
-  };
-
+  const conferencia = new Conferencia(descompactar);
   for (let i = 0; i <= quantidade; i++) {
     const quadro = i < quantidade ? await lerParte(i) : await lerFinal();
     await escrever(quadro);
-    quadros.push(quadro.length);
-    tamanhoArquivo += quadro.length;
-    processar(leitor.alimentar(descompactar(quadro)));
-    aoAvancar({ parte: i, de: quantidade + 1, bytesConferidos, tamanhoArquivo });
+    const andamento = conferencia.alimentar(quadro);
+    aoAvancar({ parte: i, de: quantidade + 1, ...andamento });
+  }
+  return conferencia.concluir();
+}
+
+/**
+ * A conferência alimentada pedaço a pedaço, na ordem (durante o recebimento, para não sobrar nada para o fim):
+ * descompacta, lê o .tar e calcula o SHA-256 de cada arquivo; {concluir} compara com o manifesto (no último pedaço).
+ */
+export class Conferencia {
+  constructor(descompactar) {
+    this.descompactar = descompactar;
+    this.leitor = new LeitorDeTar();
+    this.calculados = new Map();
+    this.manifestoBytes = null;
+    this.atual = null;
+    this.bytesConferidos = 0;
+    this.tamanhoArquivo = 0;
+    this.quadros = [];
   }
 
+  /** Um quadro (pedaço) a mais, na ordem. */
+  alimentar(quadro) {
+    this.quadros.push(quadro.length);
+    this.tamanhoArquivo += quadro.length;
+    for (const e of this.leitor.alimentar(this.descompactar(quadro))) {
+      if (e.tipo === 'inicio') {
+        this.atual = { nome: e.nome, entrada: e.entrada, sha: e.entrada === 'arquivo' ? new Sha256() : null, tamanho: 0, partes: [] };
+      } else if (e.tipo === 'dados') {
+        const atual = this.atual;
+        if (atual.nome === MANIFESTO) atual.partes.push(e.bytes.slice());
+        else if (atual.sha) atual.sha.atualizar(e.bytes);
+        atual.tamanho += e.bytes.length;
+        this.bytesConferidos += e.bytes.length;
+      } else if (e.tipo === 'fim') {
+        const atual = this.atual;
+        if (atual.nome === MANIFESTO) {
+          this.manifestoBytes = juntar(atual.partes);
+        } else if (atual.entrada === 'arquivo') {
+          this.calculados.set(atual.nome, { sha: atual.sha.hex(), tamanho: atual.tamanho });
+        }
+        this.atual = null;
+      }
+    }
+    return { bytesConferidos: this.bytesConferidos, tamanhoArquivo: this.tamanhoArquivo };
+  }
+
+  /** Depois do último quadro: o resultado da conferência contra o manifesto. */
+  concluir() {
+    return conferir(this.manifestoBytes, this.calculados, this.bytesConferidos, this.tamanhoArquivo, this.quadros);
+  }
+}
+
+function conferir(manifestoBytes, calculados, bytesConferidos, tamanhoArquivo, quadros) {
   if (!manifestoBytes) {
     return resultado(false, 0, bytesConferidos, tamanhoArquivo, [], [], [], 'O backup não tem o manifesto no fim: está incompleto.', quadros, 0, 0, 0);
   }

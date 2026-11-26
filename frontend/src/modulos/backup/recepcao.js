@@ -63,6 +63,73 @@ function rodarWorker(pedido, aoAvancar) {
   })
 }
 
+/** Pedaços entregues ao worker e ainda não gravados/conferidos por ele: acima disto o recebimento espera. */
+const MAX_NA_FILA = 12
+
+/**
+ * O .tar.zst montado e conferido durante o recebimento (no worker): cada pedaço confirmado vai para o arquivo final
+ * e para a conferência na hora, e no fim só falta fechar. Se algo der errado aqui, {falhou} fica true e o fim monta
+ * do jeito antigo, a partir dos pedaços em .partes (que só são apagados depois de tudo conferido).
+ */
+function acompanhamento(pasta, nome, ja) {
+  const worker = new Worker('/c/_/montador-worker.js', { type: 'module' })
+  const estado = { falhou: false, conferido: 0, pendentes: 0 }
+  let aoPronto
+  let aoFim
+  let aoVaga = null
+  const pronto = new Promise((r) => { aoPronto = r })
+  const fim = new Promise((resolver, rejeitar) => { aoFim = { resolver, rejeitar } })
+  fim.catch(() => {})
+  const parar = (erro) => {
+    estado.falhou = true
+    worker.terminate()
+    aoPronto(false)
+    aoFim.rejeitar(erro)
+    if (aoVaga) aoVaga()
+  }
+  worker.onmessage = (ev) => {
+    const m = ev.data
+    if (m.pronto) aoPronto(true)
+    else if (m.ack !== undefined) {
+      estado.pendentes--
+      estado.conferido = m.bytesConferidos
+      if (aoVaga && estado.pendentes < MAX_NA_FILA) {
+        const v = aoVaga
+        aoVaga = null
+        v()
+      }
+    } else if (m.fim) {
+      if (m.erro) parar(new Error(m.erro))
+      else {
+        worker.terminate()
+        aoFim.resolver(m.resultado)
+      }
+    }
+  }
+  worker.onerror = (ev) => parar(new Error(ev.message || 'falha no worker'))
+  worker.postMessage({ acao: 'acompanhar', pasta, nome, ja })
+  return {
+    estado,
+    /** O pedaço seq, já gravado em .partes e confirmado. */
+    async entregar(seq, bytes) {
+      if (!(await pronto) || estado.falhou) return
+      estado.pendentes++
+      const inteiro = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+      worker.postMessage({ acao: 'parte', seq, bytes }, inteiro ? [bytes.buffer] : [])
+      if (estado.pendentes >= MAX_NA_FILA) await new Promise((r) => { aoVaga = r })
+    },
+    /** O último pedaço: devolve o resultado da conferência (ou rejeita: aí monta do jeito antigo). */
+    async fechar(final, relatorio, quantidade) {
+      if (!(await pronto) || estado.falhou) throw new Error('acompanhamento interrompido')
+      worker.postMessage({ acao: 'fechar', final, relatorio, quantidade })
+      return fim
+    },
+    encerrar() {
+      if (!estado.falhou) parar(new Error('encerrado'))
+    },
+  }
+}
+
 export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
   /**
    * Por coleta: { fase, pasta, mensagem, bytes, progresso, extracao }. fase: 'recebendo' | 'permissao' (o navegador
@@ -116,11 +183,14 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
     if (!textoDaChave) throw new Error('Esta coleta não tem a chave neste navegador: gere um link novo.')
     const chave = await importarChave(textoDaChave)
     let pausa = 2000
+    let acomp = null
+    try {
     while (controle.ativo) {
       try {
         const atual = await backupApi.coleta(id)
         if (atual.situacao === 'FECHANDO') {
-          await fechar(id, pasta, nome)
+          await fechar(id, pasta, nome, acomp)
+          acomp = null
           return
         }
         if (!ATIVAS.includes(atual.situacao)) {
@@ -128,6 +198,11 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
           return
         }
         const partes = await pasta.getDirectoryHandle(`${nome}.partes`, { create: true })
+        if (!acomp || acomp.estado.falhou) {
+          acomp?.encerrar()
+          acomp = acompanhamento(pasta, nome, atual.proximoSeq)
+          acomp.proximo = atual.proximoSeq
+        }
         // pede e grava pedaços enquanto vierem; sem pedaço (204), volta a conferir a situação
         for (;;) {
           const resposta = await backupApi.receber(id)
@@ -144,9 +219,17 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
             throw new PedacoAdulterado('Um pedaço chegou que não abre com a chave deste link (adulterado ou de outro '
               + 'link). Nada foi confirmado; cancele esta coleta e gere um link novo.')
           }
+          if (seq < acomp.proximo) {
+            // a coleta voltou ao começo de um arquivo (recomeçou no cliente): a montagem recomeça desse ponto
+            acomp.encerrar()
+            acomp = acompanhamento(pasta, nome, seq)
+            acomp.proximo = seq
+          }
           await gravarArquivo(partes, nomeDaParte(seq), conteudo)
           await backupApi.recebido(id, seq, sha)
-          marcar(id, { fase: 'recebendo', bytes: (estados[id]?.bytes ?? 0) + bytes.length, mensagem: '' })
+          acomp.proximo = seq + 1
+          await acomp.entregar(seq, conteudo)
+          marcar(id, { fase: 'recebendo', bytes: (estados[id]?.bytes ?? 0) + bytes.length, conferido: acomp.estado.conferido, mensagem: '' })
           pausa = 2000
         }
       } catch (e) {
@@ -156,9 +239,12 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
         pausa = Math.min(pausa * 2, 30000)
       }
     }
+    } finally {
+      acomp?.encerrar()
+    }
   }
 
-  async function fechar(id, pasta, nome) {
+  async function fechar(id, pasta, nome, acomp) {
     marcar(id, { fase: 'montando', mensagem: 'Juntando os pedaços e conferindo cada arquivo…', progresso: null })
     let relatorio = null
     if (await existe(pasta, `${nome}.json`)) {
@@ -169,27 +255,33 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
     let resultado = relatorio?.conferencia
     if (!resultado) {
       const partes = await pasta.getDirectoryHandle(`${nome}.partes`, { create: true })
-      const final = await backupApi.parteFinal(id)
-      await gravarArquivo(partes, 'final.zst', new Uint8Array(final.data))
+      const final = new Uint8Array((await backupApi.parteFinal(id)).data)
+      await gravarArquivo(partes, 'final.zst', final)
       const coleta = await backupApi.coleta(id)
-      resultado = await rodarWorker({
-        acao: 'montar',
-        pasta,
-        nome,
-        quantidade: coleta.proximoSeq,
-        relatorio: {
-          cliente: coleta.cliente,
-          raiz: coleta.raiz,
-          pastas: coleta.pastas,
-          computador: coleta.computador,
-          geradoPor: coleta.criadaPor,
-          inicio: coleta.inicioEnvio,
-          fim: coleta.concluidaEm,
-          resumo: coleta.resumo,
-          alteradosDuranteALeitura: coleta.alterados,
-          naoLidos: coleta.naoLidos,
-        },
-      }, (p) => marcar(id, { progresso: p }))
+      const dados = {
+        cliente: coleta.cliente,
+        raiz: coleta.raiz,
+        pastas: coleta.pastas,
+        computador: coleta.computador,
+        geradoPor: coleta.criadaPor,
+        inicio: coleta.inicioEnvio,
+        fim: coleta.concluidaEm,
+        resumo: coleta.resumo,
+        alteradosDuranteALeitura: coleta.alterados,
+        naoLidos: coleta.naoLidos,
+      }
+      if (acomp && !acomp.estado.falhou) {
+        // já montado e conferido durante o recebimento: só o último pedaço e fechar
+        try {
+          resultado = await acomp.fechar(final, dados, coleta.proximoSeq)
+        } catch {
+          resultado = null
+        }
+      }
+      if (!resultado) {
+        resultado = await rodarWorker({ acao: 'montar', pasta, nome, quantidade: coleta.proximoSeq, relatorio: dados },
+          (p) => marcar(id, { progresso: p }))
+      }
     }
     await backupApi.resultado(id, {
       integra: resultado.integra,
