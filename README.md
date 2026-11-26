@@ -737,6 +737,38 @@ esta tela de novo. No fim ficam na pasta `<Cliente>_<aaaa-mm-dd_hhmmss>.tar.zst`
 **Extrair em…** descompacta numa pasta escolhida; o arquivo também abre no `tar` do Windows 11
 (`tar -xf arquivo.tar.zst`), no 7-Zip ZS e no PeaZip.
 
+### Coletor nativo (pelo PowerShell, o recomendado)
+
+Ao gerar o link, a tela mostra também um **comando**: no computador onde fica a pasta do sistema (pelo AnyDesk ou WTS),
+abra o **PowerShell como administrador**, cole e tecle Enter. Ele pergunta a pasta (sugere a do cadastro) e quais
+subpastas levar (Enter = todas), e mostra o andamento. Não instala nada: baixa o coletor do próprio sistema
+(`/c/_/nativo/coletor.ps1`, pelo túnel) e roda no PowerShell que vem no Windows, 64 bits: Windows 10/11 e Server
+2016 em diante (PowerShell 5.1; testado no Windows 11). Server 2012 R2 (PowerShell 4) deve funcionar, mas ainda não foi
+testado; Windows 7 (PowerShell 2.0) não serve: use a página pelo navegador.
+
+- **Arquivos em uso vêm inteiros.** Como administrador, ele tira uma **cópia de sombra** do disco (VSS) e lê dela: os
+  `.cfg`, `.dat` e demais arquivos abertos ou travados pelo sistema vêm inteiros e consistentes, como se o sistema
+  estivesse fechado. A cópia de sombra é apagada no fim (e, se a janela for fechada no meio, na próxima vez que rodar).
+  Sem administrador (ou com `-SemSombra`), o travado vai para "ficaram de fora" com o motivo, e o coletor avisa.
+- **Rápido.** Lê com um processo só, compacta com o zstd nativo (`libzstd.dll` 1.5.7, servida pelo sistema e conferida
+  pelo SHA-256 antes de carregar) em todos os núcleos menos um, nível 9, e envia 4 pedaços em paralelo. Medido aqui:
+  2,7 GB (3.034 arquivos) lidos, enviados, gravados e conferidos em 59 s; na prática, o limite é o upload da loja.
+- **O mesmo protocolo da página:** pedaços `.tar` de 8 MiB em quadros zstd, AES-256-GCM com a chave do link, SHA-256 de
+  cada arquivo no manifesto, sessão presa ao primeiro computador. Caiu ou fechou: rode **o mesmo comando** de novo e
+  ele continua de onde parou (a sessão fica em `%LOCALAPPDATA%\PlumbColetor`, apagada ao terminar). No fim, o comando
+  (que leva a chave) é tirado do histórico do PowerShell.
+- **Opções** (depois do `-Link '…'`): `-Pasta C:\sislojas`, `-Tudo` (sem perguntar as subpastas), `-Nivel 1..19`,
+  `-Envios 1..8`, `-SemSombra`.
+- Atalhos de pasta (junções) não são seguidos (aparecem em "ficaram de fora"). Pasta na rede (`\\servidor\...`): roda
+  sem cópia de sombra; o ideal é rodar no computador onde a pasta fica.
+
+**Do lado de quem recebe**, cada pedaço confirmado já vai para o `.tar.zst` final e para a conferência (num worker),
+durante o recebimento: no fim só falta o último pedaço e fechar o arquivo (antes eram mais 14 minutos para juntar e
+conferir 13 GB). Se a tela for fechada no meio, ao abrir de novo ela remonta a partir dos pedaços já gravados em
+`.partes` e segue.
+
+A página pelo navegador continua valendo como plano B (quando não der para usar o PowerShell).
+
 **Seletor de pastas e http.** O Chrome e o Edge só abrem o seletor de pastas em endereço seguro (https) ou em
 `localhost`. No computador onde o sistema roda, use `http://localhost:8080`. Nos outros (pela rede, `http://<ip>:8080`),
 libere o endereço uma vez em `chrome://flags/#unsafely-treat-insecure-origin-as-secure` (no Edge, `edge://flags/...`):
@@ -807,6 +839,10 @@ errado, voltar ao início de um arquivo, retomar depois de reiniciar, nada do ba
 `FiltroDaPortaPublicaTest`, `NomesSegurosTest` e `backend/src/test/js/backup-ponta-a-ponta.mjs`, que faz os papéis da
 página do cliente e do navegador de quem recebe com os mesmos módulos JS do sistema (leitura, `.tar`, SHA-256, zstd em
 wasm e o montador), contra o sistema rodando (`SistemaDeTeste` sobe um com PostgreSQL temporário).
+`backend/src/test/js/coletor-nativo-ponta-a-ponta.mjs` roda o **comando de verdade** (o mesmo texto que a tela copia)
+contra uma pasta com um `.cfg` travado por outro processo, acentos, caminho de mais de 260 caracteres, arquivo grande,
+vazios e uma junção: com a cópia de sombra (o travado vem inteiro), matando o coletor no meio e rodando de novo, e sem a
+cópia de sombra (o travado sai com o motivo). Precisa do PowerShell como administrador.
 
 ## Clientes
 
