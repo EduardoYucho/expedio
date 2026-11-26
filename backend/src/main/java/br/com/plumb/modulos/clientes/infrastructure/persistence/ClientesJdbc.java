@@ -1,5 +1,6 @@
 package br.com.plumb.modulos.clientes.infrastructure.persistence;
 
+import br.com.plumb.modulos.clientes.application.cofre.AlvoDoCofre;
 import br.com.plumb.modulos.clientes.application.cofre.ChavesDoCofre;
 import br.com.plumb.modulos.clientes.application.cofre.RegistroDoCofre;
 import br.com.plumb.modulos.clientes.application.ficha.CadastroDeClientes;
@@ -54,7 +55,14 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
                                     AND clientes.sem_acento(lower(ct.nome || ' ' || coalesce(ct.telefone, '')))
                                         LIKE :padrao ESCAPE '\\')
                              OR EXISTS (SELECT 1 FROM clientes.acesso ac WHERE ac.cliente_id = c.id
-                                    AND regexp_replace(lower(ac.identificador), '\\s', '', 'g') LIKE :semEspaco ESCAPE '\\'))
+                                    AND (regexp_replace(lower(ac.identificador), '\\s', '', 'g') LIKE :semEspaco ESCAPE '\\'
+                                      OR clientes.sem_acento(lower(coalesce(ac.rede, ''))) LIKE :padrao ESCAPE '\\'))
+                             OR EXISTS (SELECT 1 FROM clientes.maquina mq WHERE mq.cliente_id = c.id
+                                    AND clientes.sem_acento(lower(coalesce(mq.nome_computador, '') || ' '
+                                        || coalesce(mq.ip_local, '') || ' ' || coalesce(mq.ip_radmin, '')))
+                                        LIKE :padrao ESCAPE '\\')
+                             OR EXISTS (SELECT 1 FROM clientes.credencial cr WHERE cr.cliente_id = c.id
+                                    AND clientes.sem_acento(lower(cr.usuario)) LIKE :padrao ESCAPE '\\'))
                          ORDER BY g.nome NULLS LAST, c.nome
                          LIMIT :limite""")
                 .param("situacao", situacao)
@@ -103,22 +111,47 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
                                 rs.getString("observacao")))
                         .list(),
                 jdbc.sql("""
-                                SELECT id, nome, papel, pasta_sistema, observacao FROM clientes.maquina
+                                SELECT id, nome, papel, nome_computador, ip_local, ip_radmin, sistema_operacional,
+                                       pasta_sistema, banco_dados, local_base, processador, memoria, disco, local_backup,
+                                       observacao
+                                  FROM clientes.maquina
                                  WHERE cliente_id = :id
                                  ORDER BY CASE papel WHEN 'SERVIDOR_CENTRAL' THEN 0 WHEN 'SERVIDOR' THEN 1 ELSE 2 END,
                                           lower(nome)""")
                         .param("id", id)
                         .query((rs, i) -> new Ficha.Maquina(uuid(rs, "id"), rs.getString("nome"), rs.getString("papel"),
-                                rs.getString("pasta_sistema"), rs.getString("observacao")))
+                                rs.getString("nome_computador"), rs.getString("ip_local"), rs.getString("ip_radmin"),
+                                rs.getString("sistema_operacional"), rs.getString("pasta_sistema"),
+                                rs.getString("banco_dados"), rs.getString("local_base"), rs.getString("processador"),
+                                rs.getString("memoria"), rs.getString("disco"), rs.getString("local_backup"),
+                                rs.getString("observacao")))
                         .list(),
                 jdbc.sql("""
-                                SELECT id, maquina_id, tipo, identificador, porta, usuario, observacao,
+                                SELECT id, maquina_id, tipo, identificador, porta, rede,
+                                       rede_senha_cifrada IS NOT NULL AS tem_senha_rede, rede_senha_alterada_em,
+                                       rede_senha_alterada_por, usuario, observacao,
                                        senha_cifrada IS NOT NULL AS tem_senha, senha_alterada_em, senha_alterada_por,
                                        atualizado_em, atualizado_por
                                   FROM clientes.acesso WHERE cliente_id = :id ORDER BY tipo, criado_em""")
                         .param("id", id)
                         .query((rs, i) -> new Ficha.Acesso(uuid(rs, "id"), uuid(rs, "maquina_id"), rs.getString("tipo"),
-                                rs.getString("identificador"), (Integer) rs.getObject("porta"), rs.getString("usuario"),
+                                rs.getString("identificador"), (Integer) rs.getObject("porta"), rs.getString("rede"),
+                                rs.getBoolean("tem_senha_rede"), instante(rs, "rede_senha_alterada_em"),
+                                rs.getString("rede_senha_alterada_por"), rs.getString("usuario"),
+                                rs.getString("observacao"), rs.getBoolean("tem_senha"), instante(rs, "senha_alterada_em"),
+                                rs.getString("senha_alterada_por"), instante(rs, "atualizado_em"),
+                                rs.getString("atualizado_por")))
+                        .list(),
+                jdbc.sql("""
+                                SELECT id, maquina_id, onde, servico, usuario, observacao,
+                                       senha_cifrada IS NOT NULL AS tem_senha, senha_alterada_em, senha_alterada_por,
+                                       atualizado_em, atualizado_por
+                                  FROM clientes.credencial WHERE cliente_id = :id
+                                 ORDER BY CASE onde WHEN 'SISTEMA' THEN 0 WHEN 'WINDOWS' THEN 1 WHEN 'BANCO' THEN 2 ELSE 3 END,
+                                          lower(coalesce(servico, '')), lower(usuario)""")
+                        .param("id", id)
+                        .query((rs, i) -> new Ficha.Credencial(uuid(rs, "id"), uuid(rs, "maquina_id"),
+                                rs.getString("onde"), rs.getString("servico"), rs.getString("usuario"),
                                 rs.getString("observacao"), rs.getBoolean("tem_senha"), instante(rs, "senha_alterada_em"),
                                 rs.getString("senha_alterada_por"), instante(rs, "atualizado_em"),
                                 rs.getString("atualizado_por")))
@@ -251,22 +284,34 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     @Override
     public UUID criarMaquina(UUID cliente, Ficha.PedidoMaquina p) {
         UUID id = UUID.randomUUID();
-        jdbc.sql("""
-                        INSERT INTO clientes.maquina (id, cliente_id, nome, papel, pasta_sistema, observacao)
-                        VALUES (:id, :cliente, :nome, :papel, :pasta, :observacao)""")
-                .param("id", id).param("cliente", cliente).param("nome", p.nome()).param("papel", p.papel())
-                .param("pasta", p.pastaSistema()).param("observacao", p.observacao()).update();
+        camposDaMaquina(jdbc.sql("""
+                        INSERT INTO clientes.maquina (id, cliente_id, nome, papel, nome_computador, ip_local, ip_radmin,
+                                                      sistema_operacional, pasta_sistema, banco_dados, local_base,
+                                                      processador, memoria, disco, local_backup, observacao)
+                        VALUES (:id, :cliente, :nome, :papel, :computador, :ipLocal, :ipRadmin, :so, :pasta, :banco,
+                                :base, :processador, :memoria, :disco, :backup, :observacao)"""), id, cliente, p)
+                .update();
         return id;
     }
 
     @Override
     public boolean alterarMaquina(UUID cliente, UUID id, Ficha.PedidoMaquina p) {
-        return jdbc.sql("""
-                        UPDATE clientes.maquina SET nome = :nome, papel = :papel, pasta_sistema = :pasta,
+        return camposDaMaquina(jdbc.sql("""
+                        UPDATE clientes.maquina SET nome = :nome, papel = :papel, nome_computador = :computador,
+                               ip_local = :ipLocal, ip_radmin = :ipRadmin, sistema_operacional = :so,
+                               pasta_sistema = :pasta, banco_dados = :banco, local_base = :base,
+                               processador = :processador, memoria = :memoria, disco = :disco, local_backup = :backup,
                                observacao = :observacao
-                         WHERE id = :id AND cliente_id = :cliente""")
-                .param("id", id).param("cliente", cliente).param("nome", p.nome()).param("papel", p.papel())
-                .param("pasta", p.pastaSistema()).param("observacao", p.observacao()).update() > 0;
+                         WHERE id = :id AND cliente_id = :cliente"""), id, cliente, p).update() > 0;
+    }
+
+    private static JdbcClient.StatementSpec camposDaMaquina(JdbcClient.StatementSpec sql, UUID id, UUID cliente,
+                                                           Ficha.PedidoMaquina p) {
+        return sql.param("id", id).param("cliente", cliente).param("nome", p.nome()).param("papel", p.papel())
+                .param("computador", p.nomeComputador()).param("ipLocal", p.ipLocal()).param("ipRadmin", p.ipRadmin())
+                .param("so", p.sistemaOperacional()).param("pasta", p.pastaSistema()).param("banco", p.bancoDados())
+                .param("base", p.localBase()).param("processador", p.processador()).param("memoria", p.memoria())
+                .param("disco", p.disco()).param("backup", p.localBackup()).param("observacao", p.observacao());
     }
 
     @Override
@@ -284,12 +329,13 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     public UUID criarAcesso(UUID cliente, Ficha.PedidoAcesso p, String quem) {
         UUID id = UUID.randomUUID();
         jdbc.sql("""
-                        INSERT INTO clientes.acesso (id, cliente_id, maquina_id, tipo, identificador, porta, usuario,
+                        INSERT INTO clientes.acesso (id, cliente_id, maquina_id, tipo, identificador, porta, rede, usuario,
                                                      observacao, atualizado_por)
-                        VALUES (:id, :cliente, :maquina, :tipo, :identificador, :porta, :usuario, :observacao, :quem)""")
+                        VALUES (:id, :cliente, :maquina, :tipo, :identificador, :porta, :rede, :usuario, :observacao,
+                                :quem)""")
                 .param("id", id).param("cliente", cliente).param("maquina", p.maquinaId()).param("tipo", p.tipo())
-                .param("identificador", p.identificador()).param("porta", p.porta()).param("usuario", p.usuario())
-                .param("observacao", p.observacao()).param("quem", quem).update();
+                .param("identificador", p.identificador()).param("porta", p.porta()).param("rede", p.rede())
+                .param("usuario", p.usuario()).param("observacao", p.observacao()).param("quem", quem).update();
         return id;
     }
 
@@ -297,17 +343,46 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     public boolean alterarAcesso(UUID cliente, UUID id, Ficha.PedidoAcesso p, String quem) {
         return jdbc.sql("""
                         UPDATE clientes.acesso SET maquina_id = :maquina, tipo = :tipo, identificador = :identificador,
-                               porta = :porta, usuario = :usuario, observacao = :observacao,
+                               porta = :porta, rede = :rede, usuario = :usuario, observacao = :observacao,
                                atualizado_em = now(), atualizado_por = :quem
                          WHERE id = :id AND cliente_id = :cliente""")
                 .param("id", id).param("cliente", cliente).param("maquina", p.maquinaId()).param("tipo", p.tipo())
-                .param("identificador", p.identificador()).param("porta", p.porta()).param("usuario", p.usuario())
-                .param("observacao", p.observacao()).param("quem", quem).update() > 0;
+                .param("identificador", p.identificador()).param("porta", p.porta()).param("rede", p.rede())
+                .param("usuario", p.usuario()).param("observacao", p.observacao()).param("quem", quem).update() > 0;
     }
 
     @Override
     public boolean apagarAcesso(UUID cliente, UUID id) {
         return apagarItem("acesso", cliente, id);
+    }
+
+    @Override
+    public UUID criarCredencial(UUID cliente, Ficha.PedidoCredencial p, String quem) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO clientes.credencial (id, cliente_id, maquina_id, onde, servico, usuario, observacao,
+                                                         atualizado_por)
+                        VALUES (:id, :cliente, :maquina, :onde, :servico, :usuario, :observacao, :quem)""")
+                .param("id", id).param("cliente", cliente).param("maquina", p.maquinaId()).param("onde", p.onde())
+                .param("servico", p.servico()).param("usuario", p.usuario()).param("observacao", p.observacao())
+                .param("quem", quem).update();
+        return id;
+    }
+
+    @Override
+    public boolean alterarCredencial(UUID cliente, UUID id, Ficha.PedidoCredencial p, String quem) {
+        return jdbc.sql("""
+                        UPDATE clientes.credencial SET maquina_id = :maquina, onde = :onde, servico = :servico,
+                               usuario = :usuario, observacao = :observacao, atualizado_em = now(), atualizado_por = :quem
+                         WHERE id = :id AND cliente_id = :cliente""")
+                .param("id", id).param("cliente", cliente).param("maquina", p.maquinaId()).param("onde", p.onde())
+                .param("servico", p.servico()).param("usuario", p.usuario()).param("observacao", p.observacao())
+                .param("quem", quem).update() > 0;
+    }
+
+    @Override
+    public boolean apagarCredencial(UUID cliente, UUID id) {
+        return apagarItem("credencial", cliente, id);
     }
 
     @Override
@@ -331,7 +406,7 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
 
     /** A tabela vem só das constantes acima (nunca do pedido). */
     private boolean apagarItem(String tabela, UUID cliente, UUID id) {
-        if (!List.of("alerta", "contato", "maquina", "acesso", "anotacao").contains(tabela)) {
+        if (!List.of("alerta", "contato", "maquina", "acesso", "credencial", "anotacao").contains(tabela)) {
             throw new IllegalArgumentException(tabela);
         }
         return jdbc.sql("DELETE FROM clientes." + tabela + " WHERE id = :id AND cliente_id = :cliente")
@@ -343,7 +418,9 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     @Override
     public boolean haDadosCifrados() {
         return jdbc.sql("""
-                        SELECT EXISTS (SELECT 1 FROM clientes.acesso WHERE senha_cifrada IS NOT NULL)
+                        SELECT EXISTS (SELECT 1 FROM clientes.acesso
+                                        WHERE senha_cifrada IS NOT NULL OR rede_senha_cifrada IS NOT NULL)
+                            OR EXISTS (SELECT 1 FROM clientes.credencial WHERE senha_cifrada IS NOT NULL)
                             OR EXISTS (SELECT 1 FROM clientes.autenticador)""")
                 .query(Boolean.class).single();
     }
@@ -405,30 +482,56 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     }
 
     @Override
-    public Optional<SenhaGuardada> senha(UUID acessoId) {
-        return jdbc.sql("""
-                        SELECT a.id, a.cliente_id, c.nome AS cliente, a.tipo, a.identificador, a.senha_cifrada, a.senha_vetor
-                          FROM clientes.acesso a JOIN clientes.cliente c ON c.id = a.cliente_id
-                         WHERE a.id = :id""")
-                .param("id", acessoId)
+    public Optional<SenhaGuardada> senha(AlvoDoCofre alvo) {
+        String sql = switch (alvo.tipo()) {
+            case ACESSO -> """
+                    SELECT a.cliente_id, c.nome AS cliente, a.tipo || ' ' || a.identificador AS item,
+                           a.senha_cifrada AS dados, a.senha_vetor AS vetor
+                      FROM clientes.acesso a JOIN clientes.cliente c ON c.id = a.cliente_id
+                     WHERE a.id = :id""";
+            case REDE -> """
+                    SELECT a.cliente_id, c.nome AS cliente,
+                           a.tipo || ' ' || a.identificador || ' (rede' || coalesce(' ' || a.rede, '') || ')' AS item,
+                           a.rede_senha_cifrada AS dados, a.rede_senha_vetor AS vetor
+                      FROM clientes.acesso a JOIN clientes.cliente c ON c.id = a.cliente_id
+                     WHERE a.id = :id""";
+            case CREDENCIAL -> """
+                    SELECT u.cliente_id, c.nome AS cliente,
+                           u.onde || coalesce(' ' || u.servico, '') || ' ' || u.usuario AS item,
+                           u.senha_cifrada AS dados, u.senha_vetor AS vetor
+                      FROM clientes.credencial u JOIN clientes.cliente c ON c.id = u.cliente_id
+                     WHERE u.id = :id""";
+        };
+        return jdbc.sql(sql)
+                .param("id", alvo.id())
                 .query((rs, i) -> {
-                    byte[] dados = rs.getBytes("senha_cifrada");
-                    String descricao = rs.getString("cliente") + " · " + rs.getString("tipo") + " "
-                            + rs.getString("identificador");
-                    return new SenhaGuardada(uuid(rs, "id"), uuid(rs, "cliente_id"),
+                    byte[] dados = rs.getBytes("dados");
+                    String descricao = rs.getString("cliente") + " · " + rs.getString("item");
+                    return new SenhaGuardada(alvo, uuid(rs, "cliente_id"),
                             descricao.length() > 300 ? descricao.substring(0, 300) : descricao,
-                            dados == null ? null : new ChavesDoCofre.Cifrado(dados, rs.getBytes("senha_vetor")));
+                            dados == null ? null : new ChavesDoCofre.Cifrado(dados, rs.getBytes("vetor")));
                 })
                 .optional();
     }
 
     @Override
-    public void gravarSenha(UUID acessoId, ChavesDoCofre.Cifrado senha, String quem, Instant em) {
-        jdbc.sql("""
-                        UPDATE clientes.acesso SET senha_cifrada = :dados, senha_vetor = :vetor,
-                               senha_alterada_em = :em, senha_alterada_por = :quem
-                         WHERE id = :id""")
-                .param("id", acessoId)
+    public void gravarSenha(AlvoDoCofre alvo, ChavesDoCofre.Cifrado senha, String quem, Instant em) {
+        String sql = switch (alvo.tipo()) {
+            case ACESSO -> """
+                    UPDATE clientes.acesso SET senha_cifrada = :dados, senha_vetor = :vetor,
+                           senha_alterada_em = :em, senha_alterada_por = :quem
+                     WHERE id = :id""";
+            case REDE -> """
+                    UPDATE clientes.acesso SET rede_senha_cifrada = :dados, rede_senha_vetor = :vetor,
+                           rede_senha_alterada_em = :em, rede_senha_alterada_por = :quem
+                     WHERE id = :id""";
+            case CREDENCIAL -> """
+                    UPDATE clientes.credencial SET senha_cifrada = :dados, senha_vetor = :vetor,
+                           senha_alterada_em = :em, senha_alterada_por = :quem
+                     WHERE id = :id""";
+        };
+        jdbc.sql(sql)
+                .param("id", alvo.id())
                 .param("dados", senha == null ? null : senha.dados())
                 .param("vetor", senha == null ? null : senha.vetor())
                 .param("em", Timestamp.from(em))
@@ -437,11 +540,14 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     }
 
     @Override
-    public void registrarUso(String login, String acao, UUID clienteId, UUID acessoId, String descricao, String ip) {
+    public void registrarUso(String login, String acao, UUID clienteId, AlvoDoCofre alvo, String descricao, String ip) {
+        UUID acesso = alvo != null && alvo.tipo() != AlvoDoCofre.Tipo.CREDENCIAL ? alvo.id() : null;
+        UUID credencial = alvo != null && alvo.tipo() == AlvoDoCofre.Tipo.CREDENCIAL ? alvo.id() : null;
         jdbc.sql("""
-                        INSERT INTO clientes.uso_de_senha (login, acao, cliente_id, acesso_id, descricao, ip)
-                        VALUES (:login, :acao, :cliente, :acesso, :descricao, :ip)""")
-                .param("login", login).param("acao", acao).param("cliente", clienteId).param("acesso", acessoId)
+                        INSERT INTO clientes.uso_de_senha (login, acao, cliente_id, acesso_id, credencial_id, descricao, ip)
+                        VALUES (:login, :acao, :cliente, :acesso, :credencial, :descricao, :ip)""")
+                .param("login", login).param("acao", acao).param("cliente", clienteId).param("acesso", acesso)
+                .param("credencial", credencial)
                 .param("descricao", descricao)
                 .param("ip", ip == null ? null : ip.length() > 45 ? ip.substring(0, 45) : ip)
                 .update();
@@ -450,14 +556,15 @@ public class ClientesJdbc implements CadastroDeClientes, RegistroDoCofre {
     @Override
     public List<Uso> usos(UUID cliente, int limite) {
         return jdbc.sql("""
-                        SELECT u.id, u.em, u.login, u.acao, u.cliente_id, c.nome AS cliente, u.acesso_id, u.descricao, u.ip
+                        SELECT u.id, u.em, u.login, u.acao, u.cliente_id, c.nome AS cliente, u.acesso_id, u.credencial_id,
+                               u.descricao, u.ip
                           FROM clientes.uso_de_senha u LEFT JOIN clientes.cliente c ON c.id = u.cliente_id
                          WHERE (CAST(:cliente AS UUID) IS NULL OR u.cliente_id = :cliente)
                          ORDER BY u.em DESC, u.id DESC LIMIT :limite""")
                 .param("cliente", cliente).param("limite", limite)
                 .query((rs, i) -> new Uso(rs.getLong("id"), instante(rs, "em"), rs.getString("login"),
                         rs.getString("acao"), uuid(rs, "cliente_id"), rs.getString("cliente"), uuid(rs, "acesso_id"),
-                        rs.getString("descricao"), rs.getString("ip")))
+                        uuid(rs, "credencial_id"), rs.getString("descricao"), rs.getString("ip")))
                 .list();
     }
 

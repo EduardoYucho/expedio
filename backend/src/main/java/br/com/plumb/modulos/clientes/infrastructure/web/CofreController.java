@@ -2,6 +2,7 @@ package br.com.plumb.modulos.clientes.infrastructure.web;
 
 import br.com.plumb.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.plumb.infrastructure.web.dto.ApiResponse;
+import br.com.plumb.modulos.clientes.application.cofre.AlvoDoCofre;
 import br.com.plumb.modulos.clientes.application.cofre.CofreDeAcessos;
 import br.com.plumb.modulos.clientes.application.cofre.RegistroDoCofre;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,8 +33,11 @@ import java.util.UUID;
  * POST   /api/v1/clientes/cofre/autenticador/ativar {codigo} confirma o app e abre o cofre
  * POST   /api/v1/clientes/cofre/abrir {codigo}               abre o cofre (token, abertoAte)
  * POST   /api/v1/clientes/cofre/fechar                       fecha
- * POST   /api/v1/clientes/cofre/acessos/{id}/senha {acao}    a senha (MOSTRAR ou COPIAR), com registro
- * PUT    /api/v1/clientes/cofre/acessos/{id}/senha {senha}   grava (vazia: apaga)
+ * POST   /api/v1/clientes/cofre/acessos/{id}/senha {acao,campo} a senha (MOSTRAR ou COPIAR), com registro;
+ *                                                            campo "rede": a senha da rede (Radmin, VPN)
+ * PUT    /api/v1/clientes/cofre/acessos/{id}/senha {senha,campo} grava (vazia: apaga)
+ * POST   /api/v1/clientes/cofre/credenciais/{id}/senha {acao} a senha de um usuário do cliente
+ * PUT    /api/v1/clientes/cofre/credenciais/{id}/senha {senha} grava (vazia: apaga)
  * GET    /api/v1/clientes/cofre/usos?cliente=&limite=        quem usou as senhas (clientes.administrar)
  * GET    /api/v1/clientes/cofre/autenticadores               quem tem autenticador (clientes.administrar)
  * DELETE /api/v1/clientes/cofre/autenticadores/{usuario}     zera o de alguém (clientes.administrar)
@@ -50,10 +54,11 @@ public class CofreController {
     public record PedidoCodigo(String codigo) {
     }
 
-    public record PedidoSenha(String acao) {
+    /** {@code campo}: "rede" para a senha da rede do acesso; vazio, a do usuário da máquina. */
+    public record PedidoSenha(String acao, String campo) {
     }
 
-    public record NovaSenha(String senha) {
+    public record NovaSenha(String senha, String campo) {
     }
 
     public record PedidoFrase(String frase) {
@@ -100,16 +105,41 @@ public class CofreController {
     public ResponseEntity<ApiResponse<Senha>> senha(@PathVariable UUID id, @RequestBody(required = false) PedidoSenha pedido,
                                                     @RequestHeader(name = COFRE, required = false) String token,
                                                     HttpServletRequest requisicao) {
-        String senha = cofre.senha(acesso.logado(), token, id, pedido == null ? null : pedido.acao(),
-                requisicao.getRemoteAddr());
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.ok(new Senha(senha)));
+        return senha(AlvoDoCofre.acesso(id, pedido == null ? null : pedido.campo()), pedido, token, requisicao);
     }
 
     @PutMapping("/acessos/{id}/senha")
     public ApiResponse<Void> gravarSenha(@PathVariable UUID id, @RequestBody(required = false) NovaSenha pedido,
                                          @RequestHeader(name = COFRE, required = false) String token,
                                          HttpServletRequest requisicao) {
-        cofre.gravarSenha(acesso.logado(), token, id, pedido == null ? null : pedido.senha(), requisicao.getRemoteAddr());
+        return gravar(AlvoDoCofre.acesso(id, pedido == null ? null : pedido.campo()), pedido, token, requisicao);
+    }
+
+    @PostMapping("/credenciais/{id}/senha")
+    public ResponseEntity<ApiResponse<Senha>> senhaDoUsuario(@PathVariable UUID id,
+                                                             @RequestBody(required = false) PedidoSenha pedido,
+                                                             @RequestHeader(name = COFRE, required = false) String token,
+                                                             HttpServletRequest requisicao) {
+        return senha(AlvoDoCofre.credencial(id), pedido, token, requisicao);
+    }
+
+    @PutMapping("/credenciais/{id}/senha")
+    public ApiResponse<Void> gravarSenhaDoUsuario(@PathVariable UUID id, @RequestBody(required = false) NovaSenha pedido,
+                                                  @RequestHeader(name = COFRE, required = false) String token,
+                                                  HttpServletRequest requisicao) {
+        return gravar(AlvoDoCofre.credencial(id), pedido, token, requisicao);
+    }
+
+    private ResponseEntity<ApiResponse<Senha>> senha(AlvoDoCofre alvo, PedidoSenha pedido, String token,
+                                                     HttpServletRequest requisicao) {
+        String senha = cofre.senha(acesso.logado(), token, alvo, pedido == null ? null : pedido.acao(),
+                requisicao.getRemoteAddr());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.ok(new Senha(senha)));
+    }
+
+    private ApiResponse<Void> gravar(AlvoDoCofre alvo, NovaSenha pedido, String token, HttpServletRequest requisicao) {
+        cofre.gravarSenha(acesso.logado(), token, alvo, pedido == null ? null : pedido.senha(),
+                requisicao.getRemoteAddr());
         return ApiResponse.ok(null);
     }
 

@@ -49,6 +49,12 @@ public interface CadastroDeClientes {
 
     boolean apagarAcesso(UUID cliente, UUID id);
 
+    UUID criarCredencial(UUID cliente, Ficha.PedidoCredencial pedido, String quem);
+
+    boolean alterarCredencial(UUID cliente, UUID id, Ficha.PedidoCredencial pedido, String quem);
+
+    boolean apagarCredencial(UUID cliente, UUID id);
+
     UUID criarAnotacao(UUID cliente, String texto, String autor);
 
     /** O autor da anotação (para só ele ou quem administra apagar). */
