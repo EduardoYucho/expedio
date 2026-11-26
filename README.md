@@ -849,20 +849,28 @@ cópia de sombra (o travado sai com o motivo). Precisa do PowerShell como admini
 Menu **Suporte › Clientes**: a ficha de cada cliente, no lugar das observações em texto livre do sistema de chamados.
 
 - **Ficha**: grupo (rede de lojas), situação ativo/inativo, cidade, CNPJ, código no sistema de chamados, **alertas** em
-  faixa vermelha no topo ("nunca excluam nada…"), **contatos** (quem autoriza mudanças), **máquinas** (servidor
-  central, caixa…, com a pasta do sistema), **acessos** (AnyDesk, UltraViewer, Radmin, WTS, TeamViewer, VPN) e
-  **anotações** com autor e data. Uma busca só acha por nome, cidade, grupo, contato, telefone ou ID do AnyDesk.
+  faixa vermelha no topo ("nunca excluam nada…"), **contatos** (quem autoriza mudanças), **acessos** (AnyDesk,
+  UltraViewer, Radmin, WTS, TeamViewer, VPN), **usuários**, **máquinas** e **anotações** com autor e data. Uma busca só
+  acha por nome, cidade, grupo, contato, telefone, ID do AnyDesk, rede do Radmin, nome ou IP de máquina e usuário.
 - **Acessos**: copiar o ID, **Abrir no AnyDesk**, **Baixar .rdp** (endereço e porta, sem a senha) e **Colar do sistema de
-  chamados**: o texto colado vira sugestões de acesso (ID, porta, usuário, senha) para conferir antes de gravar.
+  chamados**: o texto colado vira sugestões de acesso (ID, porta, usuário, senha) para conferir antes de gravar. O
+  **Radmin** (e a VPN) tem duas partes: **para entrar na rede** (nome da rede e senha da rede) e **para entrar na
+  máquina** (IP na rede, usuário e senha do Windows), cada senha guardada à parte no cofre.
+- **Usuários**: os usuários do cliente, por onde são usados (**Sistema da loja**, **Windows**, **Banco de dados**,
+  **Outros serviços**), com o serviço (Sislojas, Firebird…), a máquina, a senha no cofre e uma observação.
+- **Máquinas**: **Rede** (nome do computador, IP local, IP Radmin), **Sistema** (sistema operacional, pasta do
+  sistema, banco de dados, local da base, local do backup), **Hardware** (processador, memória, disco) e uma
+  observação longa.
 - **Nova coleta de backup**: abre os Backups de clientes com o cliente escolhido (ou já no formulário, com a pasta do
   sistema da ficha).
 
 ### O cofre das senhas
 
-- As senhas ficam no banco **só cifradas** (AES-256-GCM, um vetor por senha e o id do acesso como dado associado). A
-  chave do cofre é um arquivo em `~/.plumb/clientes/chave-do-cofre` (`clientes.pasta`), lido só pelo usuário do
-  serviço. Nenhuma lista, ficha, busca ou log traz senha: ela sai só por `POST /api/v1/clientes/cofre/acessos/{id}/senha`,
-  sem cache.
+- As senhas ficam no banco **só cifradas** (AES-256-GCM, um vetor por senha e um dado associado próprio de cada
+  senha: a do acesso, a da rede do acesso e a de cada usuário; uma copiada para o lugar da outra não abre). A chave do
+  cofre é um arquivo em `~/.plumb/clientes/chave-do-cofre` (`clientes.pasta`), lido só pelo usuário do serviço. Nenhuma
+  lista, ficha, busca ou log traz senha: ela sai só por `POST /api/v1/clientes/cofre/acessos/{id}/senha` (`campo`
+  `rede` para a senha da rede) e `POST /api/v1/clientes/cofre/credenciais/{id}/senha`, sem cache.
 - **Código do celular**: para mostrar, copiar ou alterar uma senha, a pessoa abre o cofre com o código de 6 dígitos de
   um app autenticador (Google ou Microsoft Authenticator; TOTP). Na primeira vez a tela mostra o QR code. O cofre fica
   aberto por 10 minutos (`clientes.cofre.minutos-aberto`) **só naquela aba** (o token fica na memória, nunca no
@@ -889,7 +897,7 @@ cada pessoa em Usuários.
 
 Testes: `TotpTest` (vetores do RFC 6238), `ChaveDoCofreEmArquivoTest` (cifra, chave trancada, frase de recuperação) e
 `ClientesNoBancoTest` (ficha, regras, permissões, cofre, código repetido, bloqueio, nenhuma senha na ficha nem na
-busca), no PostgreSQL temporário.
+busca, senha da rede separada da do Windows, usuários do cliente), no PostgreSQL temporário.
 
 ## Erros, protocolo e logs
 

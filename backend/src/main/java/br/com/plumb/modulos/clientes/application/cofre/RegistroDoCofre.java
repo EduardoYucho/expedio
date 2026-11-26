@@ -17,11 +17,12 @@ public interface RegistroDoCofre {
     record AutenticadorDaPessoa(UUID usuarioId, String login, String nome, Instant ativadoEm) {
     }
 
-    record SenhaGuardada(UUID acessoId, UUID clienteId, String descricao, ChavesDoCofre.Cifrado senha) {
+    record SenhaGuardada(AlvoDoCofre alvo, UUID clienteId, String descricao, ChavesDoCofre.Cifrado senha) {
     }
 
+    /** {@code acessoId}: o acesso (senha da máquina ou da rede); {@code credencialId}: o usuário do cliente. */
     record Uso(long id, Instant em, String login, String acao, UUID clienteId, String cliente, UUID acessoId,
-               String descricao, String ip) {
+               UUID credencialId, String descricao, String ip) {
     }
 
     /** Há algo cifrado com a chave do cofre (senha ou autenticador)? */
@@ -41,12 +42,13 @@ public interface RegistroDoCofre {
 
     List<AutenticadorDaPessoa> autenticadores();
 
-    /** O acesso e a senha dele ({@code senha} nula: sem senha). Vazio: o acesso não existe. */
-    Optional<SenhaGuardada> senha(UUID acessoId);
+    /** A senha guardada no alvo ({@code senha} nula: sem senha). Vazio: o acesso ou o usuário não existe. */
+    Optional<SenhaGuardada> senha(AlvoDoCofre alvo);
 
-    void gravarSenha(UUID acessoId, ChavesDoCofre.Cifrado senha, String quem, Instant em);
+    void gravarSenha(AlvoDoCofre alvo, ChavesDoCofre.Cifrado senha, String quem, Instant em);
 
-    void registrarUso(String login, String acao, UUID clienteId, UUID acessoId, String descricao, String ip);
+    /** {@code alvo} nulo: ação do cofre que não é sobre uma senha (abrir, autenticador…). */
+    void registrarUso(String login, String acao, UUID clienteId, AlvoDoCofre alvo, String descricao, String ip);
 
     /** O registro de uso, o mais recente primeiro ({@code cliente} nulo: de todos). */
     List<Uso> usos(UUID cliente, int limite);

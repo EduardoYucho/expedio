@@ -5,15 +5,20 @@ import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { mensagemDe } from '@/utils/erros'
 import { salvarBlob } from '@/utils/download'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
-import { clientesApi, cofreApi, PAPEIS_DA_MAQUINA, TIPOS_DE_ACESSO, rotuloDoPapel, rotuloDoTipo } from '../api'
+import {
+  clientesApi, cofreApi, camposDoAcesso, ONDE_DA_CREDENCIAL, PAPEIS_DA_MAQUINA, TEM_REDE, TIPOS_DE_ACESSO,
+  rotuloDoOnde, rotuloDoPapel, rotuloDoTipo,
+} from '../api'
 import { useCofreStore } from '../cofre'
 import { copiar, limparDepois } from '../copiar'
 import { pareceTerSenha, sugerirAcessos } from '../sugerir'
 import CofreDialogo from '../components/CofreDialogo.vue'
+import LinhaDeSenha from '../components/LinhaDeSenha.vue'
 
 /**
- * A ficha de um cliente: alertas em destaque, acessos (a senha só pelo cofre), máquinas, contatos, anotações e, para
- * quem administra, quem usou as senhas.
+ * A ficha de um cliente: alertas em destaque, acessos (com a rede do Radmin/VPN; as senhas só pelo cofre), usuários
+ * do cliente (sistema da loja, Windows, banco, outros serviços), máquinas, contatos, anotações e, para quem
+ * administra, quem usou as senhas.
  */
 const props = defineProps({ id: { type: String, required: true } })
 const modulos = useAcessoModulosStore()
@@ -29,7 +34,10 @@ const erroAcao = ref('')
 const grupos = ref([])
 let avisoTimer = null
 
-/** Senhas à mostra: id do acesso → senha (somem sozinhas em 30 s). */
+/**
+ * Senhas à mostra: chave do alvo → senha (somem sozinhas em 30 s). O alvo é { acesso, campo } (campo "rede": a
+ * senha da rede) ou { credencial } (um usuário do cliente).
+ */
 const visiveis = reactive({})
 const timers = new Map()
 
@@ -42,8 +50,13 @@ const colando = ref(null) // { texto, sugestoes }
 const c = computed(() => ficha.value?.cliente)
 const alertasAtivos = computed(() => (ficha.value?.alertas ?? []).filter((a) => a.ativo))
 const maquinaPorId = computed(() => Object.fromEntries((ficha.value?.maquinas ?? []).map((m) => [m.id, m])))
+/** Os usuários do cliente agrupados por onde (na ordem do sistema da loja, Windows, banco, outros). */
+const usuariosPorOnde = computed(() => ONDE_DA_CREDENCIAL
+  .map((o) => ({ ...o, itens: (ficha.value?.credenciais ?? []).filter((u) => u.onde === o.valor) }))
+  .filter((g) => g.itens.length))
 const abas = computed(() => [
   { id: 'acessos', rotulo: 'Acessos', qtd: ficha.value?.acessos.length },
+  { id: 'credenciais', rotulo: 'Usuários', qtd: ficha.value?.credenciais.length },
   { id: 'maquinas', rotulo: 'Máquinas', qtd: ficha.value?.maquinas.length },
   { id: 'contatos', rotulo: 'Contatos', qtd: ficha.value?.contatos.length },
   { id: 'anotacoes', rotulo: 'Anotações', qtd: ficha.value?.anotacoes.length },
@@ -124,8 +137,24 @@ async function apagarCliente() {
 const VAZIOS = {
   alertas: () => ({ texto: '', ativo: true }),
   contatos: () => ({ nome: '', funcao: '', telefone: '', email: '', autoriza: false, observacao: '' }),
-  maquinas: () => ({ nome: '', papel: 'SERVIDOR', pastaSistema: '', observacao: '' }),
-  acessos: () => ({ tipo: 'ANYDESK', identificador: '', porta: null, usuario: '', observacao: '', maquinaId: null, senha: '' }),
+  maquinas: () => ({
+    nome: '', papel: 'SERVIDOR', nomeComputador: '', ipLocal: '', ipRadmin: '', sistemaOperacional: '',
+    pastaSistema: '', bancoDados: '', localBase: '', localBackup: '', processador: '', memoria: '', disco: '',
+    observacao: '',
+  }),
+  acessos: () => ({
+    tipo: 'ANYDESK', identificador: '', porta: null, rede: '', usuario: '', observacao: '', maquinaId: null,
+    senha: '', senhaDaRede: '',
+  }),
+  credenciais: () => ({ onde: 'SISTEMA', servico: '', usuario: '', observacao: '', maquinaId: null, senha: '' }),
+}
+
+/** O que muda no rótulo do serviço conforme onde o usuário é usado. */
+const SERVICO_DE = {
+  SISTEMA: { rotulo: 'Sistema', exemplo: 'Sislojas, PDV, retaguarda…' },
+  WINDOWS: { rotulo: 'Máquina ou domínio', exemplo: 'Servidor, LOJA\\ (domínio)…' },
+  BANCO: { rotulo: 'Banco', exemplo: 'Firebird, SQL Server, PostgreSQL…' },
+  OUTRO: { rotulo: 'Serviço', exemplo: 'E-mail, portal da NF-e, roteador…' },
 }
 
 function novoItem(tipo) {
@@ -135,21 +164,27 @@ function novoItem(tipo) {
 function editarItem(tipo, item) {
   const dados = { ...VAZIOS[tipo]() }
   for (const k of Object.keys(dados)) if (k in item) dados[k] = item[k] ?? dados[k]
-  if (tipo === 'acessos') dados.senha = ''
+  dados.senha = ''
+  dados.senhaDaRede = ''
   editando.value = { tipo, id: item.id, dados }
 }
 
 async function salvarItem() {
   const { tipo, id, dados } = editando.value
-  const { senha, ...semSenha } = dados
+  const { senha, senhaDaRede, ...semSenha } = dados
   if (!semSenhaNoTexto(semSenha.observacao, semSenha.texto)) return
   const corpo = { ...semSenha, porta: semSenha.porta ? Number(semSenha.porta) : null }
+  if (tipo === 'acessos' && !TEM_REDE.includes(corpo.tipo)) corpo.rede = null
   const ok = await acao(async () => {
     let itemId = id
     if (id) await clientesApi.alterarItem(props.id, tipo, id, corpo)
     else itemId = (await clientesApi.criarItem(props.id, tipo, corpo)).id
-    if (tipo === 'acessos' && senha) {
-      await cofre.comCofre((t) => cofreApi.gravarSenha(t, itemId, senha))
+    const alvo = tipo === 'credenciais' ? { credencial: itemId } : { acesso: itemId }
+    if ((tipo === 'acessos' || tipo === 'credenciais') && senha) {
+      await cofre.comCofre((t) => cofreApi.gravarSenha(t, alvo, senha))
+    }
+    if (tipo === 'acessos' && senhaDaRede && TEM_REDE.includes(corpo.tipo)) {
+      await cofre.comCofre((t) => cofreApi.gravarSenha(t, { acesso: itemId, campo: 'rede' }, senhaDaRede))
     }
   }, 'Salvo.')
   if (ok) {
@@ -178,38 +213,45 @@ async function anotar() {
 
 // ---------------------------------------------------------------------------------------- senhas
 
-async function mostrarSenha(acesso) {
-  if (visiveis[acesso.id]) {
-    esconder(acesso.id)
+const chaveDo = (alvo) => (alvo.credencial ? `u:${alvo.credencial}` : `a:${alvo.acesso}:${alvo.campo ?? ''}`)
+const doAcesso = (a) => ({ acesso: a.id })
+const daRede = (a) => ({ acesso: a.id, campo: 'rede' })
+const doUsuario = (u) => ({ credencial: u.id })
+
+async function mostrarSenha(alvo) {
+  const chave = chaveDo(alvo)
+  if (visiveis[chave]) {
+    esconder(chave)
     return
   }
   await acao(async () => {
-    const { senha } = await cofre.comCofre((t) => cofreApi.senha(t, acesso.id, 'MOSTRAR'))
-    visiveis[acesso.id] = senha
-    clearTimeout(timers.get(acesso.id))
-    timers.set(acesso.id, setTimeout(() => esconder(acesso.id), 30_000))
+    const { senha } = await cofre.comCofre((t) => cofreApi.senha(t, alvo, 'MOSTRAR'))
+    visiveis[chave] = senha
+    clearTimeout(timers.get(chave))
+    timers.set(chave, setTimeout(() => esconder(chave), 30_000))
   })
 }
 
-function esconder(id) {
-  delete visiveis[id]
-  clearTimeout(timers.get(id))
-  timers.delete(id)
+function esconder(chave) {
+  delete visiveis[chave]
+  clearTimeout(timers.get(chave))
+  timers.delete(chave)
 }
 
-async function copiarSenha(acesso) {
+async function copiarSenha(alvo) {
   let copiada = true
   await acao(async () => {
-    const { senha } = await cofre.comCofre((t) => cofreApi.senha(t, acesso.id, 'COPIAR'))
+    const { senha } = await cofre.comCofre((t) => cofreApi.senha(t, alvo, 'COPIAR'))
     copiada = await copiar(senha)
     if (copiada) avisar(limparDepois(30) ? 'Senha copiada (sai da área de transferência em 30 s).' : 'Senha copiada.')
   })
   if (!copiada) erroAcao.value = 'O navegador não deixou copiar. Use "mostrar" e copie à mão.'
 }
 
-async function apagarSenha(acesso) {
-  if (!confirm('Apagar a senha guardada deste acesso?')) return
-  if (await acao(() => cofre.comCofre((t) => cofreApi.gravarSenha(t, acesso.id, '')), 'Senha apagada.')) await carregar()
+async function apagarSenha(alvo, descricao) {
+  if (!confirm(`Apagar a ${descricao}?`)) return
+  esconder(chaveDo(alvo))
+  if (await acao(() => cofre.comCofre((t) => cofreApi.gravarSenha(t, alvo, '')), 'Senha apagada.')) await carregar()
 }
 
 async function copiarTexto(texto, rotulo) {
@@ -247,7 +289,7 @@ async function adicionarSugestoes() {
         tipo: s.tipo, identificador: s.identificador, porta: s.porta ? Number(s.porta) : null,
         usuario: s.usuario || null, observacao: s.observacao,
       })
-      if (s.senha && modulos.senhasDosClientes) await cofre.comCofre((t) => cofreApi.gravarSenha(t, id, s.senha))
+      if (s.senha && modulos.senhasDosClientes) await cofre.comCofre((t) => cofreApi.gravarSenha(t, { acesso: id }, s.senha))
     }
   }, `${marcadas.length} acesso(s) adicionado(s).`)
   if (ok) colando.value = null
@@ -266,6 +308,30 @@ function novaColeta() {
   router.push({ name: 'backups-clientes', query: { cliente: c.value.nome, pasta: servidor?.pastaSistema ?? '' } })
 }
 
+/** Os dados da máquina em três partes (só os preenchidos). */
+function secoesDaMaquina(m) {
+  const secoes = [
+    { titulo: 'Rede', campos: [
+      { rotulo: 'Computador', valor: m.nomeComputador, copiar: true },
+      { rotulo: 'IP local', valor: m.ipLocal, copiar: true },
+      { rotulo: 'IP Radmin', valor: m.ipRadmin, copiar: true },
+    ] },
+    { titulo: 'Sistema', campos: [
+      { rotulo: 'Windows', valor: m.sistemaOperacional },
+      { rotulo: 'Pasta do sistema', valor: m.pastaSistema, copiar: true },
+      { rotulo: 'Banco', valor: m.bancoDados },
+      { rotulo: 'Base', valor: m.localBase, copiar: true },
+      { rotulo: 'Backup', valor: m.localBackup, copiar: true },
+    ] },
+    { titulo: 'Hardware', campos: [
+      { rotulo: 'Processador', valor: m.processador },
+      { rotulo: 'Memória', valor: m.memoria },
+      { rotulo: 'Disco', valor: m.disco },
+    ] },
+  ]
+  return secoes.map((s) => ({ ...s, campos: s.campos.filter((x) => x.valor) })).filter((s) => s.campos.length)
+}
+
 const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
 </script>
 
@@ -276,7 +342,7 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
     <EstadoDaTela :carregando="carregando && !ficha" :erro="erro" :manter="!!ficha" carregando-texto="Abrindo a ficha…" @tentar="carregar">
       <template v-if="ficha">
         <header class="flex flex-wrap items-end gap-x-4 gap-y-3 border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 flex-1 basis-full sm:basis-0">
             <p class="rotulo">
               <RouterLink :to="{ name: 'clientes' }" class="underline underline-offset-4">Clientes</RouterLink>
               <template v-if="c.grupo"> · {{ c.grupo }}</template>
@@ -371,7 +437,7 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
                   <td>
                     <input v-model="s.senha" class="campo py-1! text-sm" type="password" autocomplete="off" :disabled="!modulos.senhasDosClientes" :placeholder="modulos.senhasDosClientes ? '' : 'sem permissão'" />
                     <p v-if="s.outrasSenhas" class="mt-1 text-xs font-semibold text-carimbo">
-                      A linha tem mais {{ s.outrasSenhas }} senha(s): só a primeira vai para este acesso. Cadastre a outra num acesso próprio (ex.: o usuário do Windows).
+                      A linha tem mais {{ s.outrasSenhas }} senha(s): só a primeira vai para este acesso. Depois, em "editar", ponha a outra no campo certo (no Radmin: senha da rede e senha do Windows).
                     </p>
                   </td>
                 </tr>
@@ -394,28 +460,43 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
                 </span>
               </div>
               <dl class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
-                <dt class="rotulo self-center">ID / endereço</dt>
+                <template v-if="a.rede || a.temSenhaDaRede">
+                  <dt class="rotulo self-center">{{ camposDoAcesso(a.tipo).rede ?? 'Rede' }}</dt>
+                  <dd class="flex items-center gap-2"><span class="carimbo text-base">{{ a.rede ?? '—' }}</span>
+                    <button v-if="a.rede" type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(a.rede, 'Rede')">copiar</button></dd>
+                  <LinhaDeSenha
+                    v-if="a.temSenhaDaRede"
+                    :rotulo="camposDoAcesso(a.tipo).senhaDaRede ?? 'Senha da rede'"
+                    :visivel="visiveis[chaveDo(daRede(a))]"
+                    :pode-usar="modulos.senhasDosClientes"
+                    :alterada-em="a.senhaDaRedeAlteradaEm"
+                    :alterada-por="a.senhaDaRedeAlteradaPor"
+                    @mostrar="mostrarSenha(daRede(a))"
+                    @copiar="copiarSenha(daRede(a))"
+                    @apagar="apagarSenha(daRede(a), 'senha da rede deste acesso')"
+                  />
+                </template>
+                <dt class="rotulo self-center">{{ camposDoAcesso(a.tipo).identificador }}</dt>
                 <dd class="flex items-center gap-2">
                   <span class="carimbo text-base">{{ a.identificador }}<template v-if="a.porta">:{{ a.porta }}</template></span>
-                  <button type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(a.porta ? `${a.identificador}:${a.porta}` : a.identificador, 'ID')">copiar</button>
+                  <button type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(a.porta ? `${a.identificador}:${a.porta}` : a.identificador, camposDoAcesso(a.tipo).identificador)">copiar</button>
                 </dd>
                 <template v-if="a.usuario">
-                  <dt class="rotulo self-center">Usuário</dt>
+                  <dt class="rotulo self-center">{{ camposDoAcesso(a.tipo).usuario }}</dt>
                   <dd class="flex items-center gap-2"><span class="carimbo">{{ a.usuario }}</span>
                     <button type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(a.usuario, 'Usuário')">copiar</button></dd>
                 </template>
-                <template v-if="a.temSenha">
-                  <dt class="rotulo self-center">Senha</dt>
-                  <dd class="flex flex-wrap items-center gap-2">
-                    <span class="carimbo">{{ visiveis[a.id] ?? '••••••••' }}</span>
-                    <template v-if="modulos.senhasDosClientes">
-                      <button type="button" class="text-xs underline underline-offset-4" @click="mostrarSenha(a)">{{ visiveis[a.id] ? 'esconder' : 'mostrar' }}</button>
-                      <button type="button" class="text-xs underline underline-offset-4" @click="copiarSenha(a)">copiar</button>
-                      <button type="button" class="text-xs text-carimbo underline underline-offset-4" @click="apagarSenha(a)">apagar senha</button>
-                    </template>
-                    <span class="text-xs text-tinta-apagada">alterada {{ dataHora(a.senhaAlteradaEm) }} por {{ a.senhaAlteradaPor }}</span>
-                  </dd>
-                </template>
+                <LinhaDeSenha
+                  v-if="a.temSenha"
+                  :rotulo="camposDoAcesso(a.tipo).senha"
+                  :visivel="visiveis[chaveDo(doAcesso(a))]"
+                  :pode-usar="modulos.senhasDosClientes"
+                  :alterada-em="a.senhaAlteradaEm"
+                  :alterada-por="a.senhaAlteradaPor"
+                  @mostrar="mostrarSenha(doAcesso(a))"
+                  @copiar="copiarSenha(doAcesso(a))"
+                  @apagar="apagarSenha(doAcesso(a), `${camposDoAcesso(a.tipo).senha.toLowerCase()} deste acesso`)"
+                />
                 <template v-if="a.observacao">
                   <dt class="rotulo">Observação</dt>
                   <dd class="text-tinta-suave whitespace-pre-line">{{ a.observacao }}</dd>
@@ -425,20 +506,73 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
           </ul>
         </section>
 
+        <!-- USUÁRIOS DO CLIENTE -->
+        <section v-if="aba === 'credenciais'" class="mt-4">
+          <button v-if="modulos.editarClientes" type="button" class="botao-secundario mb-3" @click="novoItem('credenciais')">Novo usuário</button>
+          <p v-if="!ficha.credenciais.length" class="text-sm text-tinta-suave">Nenhum usuário cadastrado. Guarde aqui os usuários do sistema da loja, do Windows, do banco de dados e de outros serviços do cliente; as senhas ficam no cofre.</p>
+          <div v-for="g in usuariosPorOnde" :key="g.valor" class="mb-5">
+            <h2 class="rotulo mb-2 text-tinta">{{ g.rotulo }}</h2>
+            <ul class="space-y-2">
+              <li v-for="u in g.itens" :key="u.id" class="cartao px-4 py-3">
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span v-if="u.servico" class="font-semibold">{{ u.servico }}</span>
+                  <span v-if="u.maquinaId && maquinaPorId[u.maquinaId]" class="text-xs text-tinta-suave">{{ maquinaPorId[u.maquinaId].nome }}</span>
+                  <span v-if="modulos.editarClientes" class="ml-auto flex flex-wrap gap-2 text-xs">
+                    <button type="button" class="underline underline-offset-4" @click="editarItem('credenciais', u)">editar</button>
+                    <button v-if="modulos.senhasDosClientes || modulos.administrarClientes" type="button" class="text-carimbo underline underline-offset-4" @click="apagarItem('credenciais', u, `o usuário ${u.usuario} (e a senha dele)`)">apagar</button>
+                  </span>
+                </div>
+                <dl class="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[7rem_1fr]">
+                  <dt class="rotulo self-center">Usuário</dt>
+                  <dd class="flex items-center gap-2"><span class="carimbo text-base">{{ u.usuario }}</span>
+                    <button type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(u.usuario, 'Usuário')">copiar</button></dd>
+                  <LinhaDeSenha
+                    v-if="u.temSenha"
+                    :visivel="visiveis[chaveDo(doUsuario(u))]"
+                    :pode-usar="modulos.senhasDosClientes"
+                    :alterada-em="u.senhaAlteradaEm"
+                    :alterada-por="u.senhaAlteradaPor"
+                    @mostrar="mostrarSenha(doUsuario(u))"
+                    @copiar="copiarSenha(doUsuario(u))"
+                    @apagar="apagarSenha(doUsuario(u), `senha do usuário ${u.usuario}`)"
+                  />
+                  <template v-if="u.observacao">
+                    <dt class="rotulo">Observação</dt>
+                    <dd class="text-tinta-suave whitespace-pre-line">{{ u.observacao }}</dd>
+                  </template>
+                </dl>
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <!-- MÁQUINAS -->
         <section v-if="aba === 'maquinas'" class="mt-4">
           <button v-if="modulos.editarClientes" type="button" class="botao-secundario mb-3" @click="novoItem('maquinas')">Nova máquina</button>
           <p v-if="!ficha.maquinas.length" class="text-sm text-tinta-suave">Nenhuma máquina cadastrada.</p>
-          <ul class="cartao divide-y divide-linha" v-else>
-            <li v-for="m in ficha.maquinas" :key="m.id" class="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3 text-sm">
-              <span class="font-semibold">{{ m.nome }}</span>
-              <span class="rotulo">{{ rotuloDoPapel(m.papel) }}</span>
-              <span v-if="m.pastaSistema" class="carimbo">{{ m.pastaSistema }}</span>
-              <span v-if="m.observacao" class="w-full text-tinta-suave">{{ m.observacao }}</span>
-              <span v-if="modulos.editarClientes" class="ml-auto flex gap-2 text-xs">
-                <button type="button" class="underline underline-offset-4" @click="editarItem('maquinas', m)">editar</button>
-                <button type="button" class="text-carimbo underline underline-offset-4" @click="apagarItem('maquinas', m, `a máquina ${m.nome}`)">apagar</button>
-              </span>
+          <ul class="space-y-3">
+            <li v-for="m in ficha.maquinas" :key="m.id" class="cartao px-4 py-3 text-sm">
+              <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span class="font-semibold">{{ m.nome }}</span>
+                <span class="rotulo">{{ rotuloDoPapel(m.papel) }}</span>
+                <span v-if="modulos.editarClientes" class="ml-auto flex gap-2 text-xs">
+                  <button type="button" class="underline underline-offset-4" @click="editarItem('maquinas', m)">editar</button>
+                  <button type="button" class="text-carimbo underline underline-offset-4" @click="apagarItem('maquinas', m, `a máquina ${m.nome}`)">apagar</button>
+                </span>
+              </div>
+              <div class="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-3">
+                <div v-for="s in secoesDaMaquina(m)" :key="s.titulo">
+                  <p class="rotulo text-tinta">{{ s.titulo }}</p>
+                  <dl class="mt-1 space-y-0.5">
+                    <div v-for="x in s.campos" :key="x.rotulo" class="flex flex-wrap items-baseline gap-x-2">
+                      <dt class="text-xs text-tinta-suave">{{ x.rotulo }}</dt>
+                      <dd class="carimbo break-all">{{ x.valor }}</dd>
+                      <button v-if="x.copiar" type="button" class="text-xs underline underline-offset-4" @click="copiarTexto(x.valor, x.rotulo)">copiar</button>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+              <p v-if="m.observacao" class="mt-3 border-t border-linha pt-2 text-tinta-suave whitespace-pre-line">{{ m.observacao }}</p>
             </li>
           </ul>
         </section>
@@ -502,7 +636,7 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
           <p v-if="!usos" class="text-sm text-tinta-suave">Carregando…</p>
           <p v-else-if="!usos.length" class="text-sm text-tinta-suave">Ninguém usou as senhas deste cliente ainda.</p>
           <table v-else class="cartao w-full text-sm">
-            <thead><tr class="text-left"><th class="rotulo px-3 py-2">Quando</th><th class="rotulo">Quem</th><th class="rotulo">O quê</th><th class="rotulo">Acesso</th><th class="rotulo">De onde</th></tr></thead>
+            <thead><tr class="text-left"><th class="rotulo px-3 py-2">Quando</th><th class="rotulo">Quem</th><th class="rotulo">O quê</th><th class="rotulo">Senha de</th><th class="rotulo">De onde</th></tr></thead>
             <tbody class="divide-y divide-linha">
               <tr v-for="u in usos" :key="u.id">
                 <td class="px-3 py-2 whitespace-nowrap">{{ dataHora(u.em) }}</td>
@@ -517,7 +651,7 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
 
         <!-- formulário de um item -->
         <div v-if="editando" class="fixed inset-0 z-40 grid place-items-center bg-tinta/30 px-4" role="dialog" aria-modal="true" @keydown.esc="editando = null">
-          <form class="cartao grid w-full max-w-lg gap-3 px-5 py-4" @submit.prevent="salvarItem">
+          <form class="cartao grid max-h-[92vh] w-full gap-3 overflow-y-auto px-5 py-4" :class="editando.tipo === 'maquinas' || editando.tipo === 'acessos' ? 'max-w-2xl' : 'max-w-lg'" @submit.prevent="salvarItem">
             <p class="rotulo">{{ editando.id ? 'Alterar' : 'Novo' }} · {{ abas.find((x) => x.id === editando.tipo)?.rotulo }}</p>
 
             <template v-if="editando.tipo === 'alertas'">
@@ -535,26 +669,73 @@ const dataHora = (v) => (v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 's
             </template>
 
             <template v-else-if="editando.tipo === 'maquinas'">
-              <label><span class="rotulo">Nome</span><input v-model="editando.dados.nome" class="campo mt-1 font-sans" maxlength="80" required placeholder="Servidor central" /></label>
-              <label><span class="rotulo">Papel</span>
-                <select v-model="editando.dados.papel" class="campo mt-1 font-sans"><option v-for="p in PAPEIS_DA_MAQUINA" :key="p.valor" :value="p.valor">{{ p.rotulo }}</option></select></label>
-              <label><span class="rotulo">Pasta do sistema</span><input v-model="editando.dados.pastaSistema" class="campo mt-1" maxlength="260" placeholder="C:\sislojas" /></label>
-              <label><span class="rotulo">Observação</span><textarea v-model="editando.dados.observacao" class="campo mt-1 font-sans" rows="2" maxlength="500" /></label>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label><span class="rotulo">Nome</span><input v-model="editando.dados.nome" class="campo mt-1 font-sans" maxlength="80" required placeholder="Servidor central" /></label>
+                <label><span class="rotulo">Papel</span>
+                  <select v-model="editando.dados.papel" class="campo mt-1 font-sans"><option v-for="p in PAPEIS_DA_MAQUINA" :key="p.valor" :value="p.valor">{{ p.rotulo }}</option></select></label>
+              </div>
+              <fieldset class="grid gap-3 border-t border-linha pt-2 sm:grid-cols-3">
+                <legend class="rotulo pr-2 text-tinta">Rede</legend>
+                <label><span class="rotulo">Nome do computador</span><input v-model="editando.dados.nomeComputador" class="campo mt-1" maxlength="80" placeholder="SERVIDOR" /></label>
+                <label><span class="rotulo">IP local</span><input v-model="editando.dados.ipLocal" class="campo mt-1" maxlength="60" placeholder="192.168.0.10" /></label>
+                <label><span class="rotulo">IP Radmin</span><input v-model="editando.dados.ipRadmin" class="campo mt-1" maxlength="60" placeholder="26.x.x.x" /></label>
+              </fieldset>
+              <fieldset class="grid gap-3 border-t border-linha pt-2 sm:grid-cols-2">
+                <legend class="rotulo pr-2 text-tinta">Sistema</legend>
+                <label><span class="rotulo">Sistema operacional</span><input v-model="editando.dados.sistemaOperacional" class="campo mt-1 font-sans" maxlength="120" placeholder="Windows Server 2019" /></label>
+                <label><span class="rotulo">Pasta do sistema</span><input v-model="editando.dados.pastaSistema" class="campo mt-1" maxlength="260" placeholder="C:\sislojas" /></label>
+                <label><span class="rotulo">Banco de dados</span><input v-model="editando.dados.bancoDados" class="campo mt-1 font-sans" maxlength="120" placeholder="Firebird 2.5" /></label>
+                <label><span class="rotulo">Local da base</span><input v-model="editando.dados.localBase" class="campo mt-1" maxlength="260" placeholder="C:\sislojas\dados\BASE.FDB" /></label>
+                <label class="sm:col-span-2"><span class="rotulo">Local do backup</span><input v-model="editando.dados.localBackup" class="campo mt-1" maxlength="260" placeholder="D:\backup" /></label>
+              </fieldset>
+              <fieldset class="grid gap-3 border-t border-linha pt-2 sm:grid-cols-3">
+                <legend class="rotulo pr-2 text-tinta">Hardware</legend>
+                <label><span class="rotulo">Processador</span><input v-model="editando.dados.processador" class="campo mt-1 font-sans" maxlength="120" placeholder="Core i5 10ª" /></label>
+                <label><span class="rotulo">Memória</span><input v-model="editando.dados.memoria" class="campo mt-1 font-sans" maxlength="40" placeholder="16 GB" /></label>
+                <label><span class="rotulo">Disco</span><input v-model="editando.dados.disco" class="campo mt-1 font-sans" maxlength="120" placeholder="SSD 480 GB" /></label>
+              </fieldset>
+              <label><span class="rotulo">Observação</span><textarea v-model="editando.dados.observacao" class="campo mt-1 font-sans" rows="5" maxlength="4000" placeholder="Onde fica, o que roda nela, cuidados…" /></label>
             </template>
 
             <template v-else-if="editando.tipo === 'acessos'">
               <label><span class="rotulo">Tipo</span>
                 <select v-model="editando.dados.tipo" class="campo mt-1 font-sans"><option v-for="t in TIPOS_DE_ACESSO" :key="t.valor" :value="t.valor">{{ t.rotulo }}</option></select></label>
-              <div class="grid grid-cols-[1fr_7rem] gap-2">
-                <label><span class="rotulo">ID ou endereço</span><input v-model="editando.dados.identificador" class="campo mt-1" maxlength="200" required /></label>
-                <label><span class="rotulo">Porta</span><input v-model="editando.dados.porta" class="campo mt-1" inputmode="numeric" maxlength="5" /></label>
-              </div>
-              <label><span class="rotulo">Usuário</span><input v-model="editando.dados.usuario" class="campo mt-1" maxlength="120" autocomplete="off" /></label>
-              <label v-if="modulos.senhasDosClientes"><span class="rotulo">{{ editando.id ? 'Senha nova (vazio: não muda)' : 'Senha' }}</span>
-                <input v-model="editando.dados.senha" class="campo mt-1" type="password" maxlength="200" autocomplete="new-password" /></label>
+              <fieldset v-if="TEM_REDE.includes(editando.dados.tipo)" class="grid gap-3 border-t border-linha pt-2 sm:grid-cols-2">
+                <legend class="rotulo pr-2 text-tinta">Para entrar na rede</legend>
+                <label><span class="rotulo">{{ camposDoAcesso(editando.dados.tipo).rede }}</span><input v-model="editando.dados.rede" class="campo mt-1" maxlength="120" autocomplete="off" /></label>
+                <label v-if="modulos.senhasDosClientes"><span class="rotulo">{{ camposDoAcesso(editando.dados.tipo).senhaDaRede }}{{ editando.id ? ' nova (vazio: não muda)' : '' }}</span>
+                  <input v-model="editando.dados.senhaDaRede" class="campo mt-1" type="password" maxlength="200" autocomplete="new-password" /></label>
+              </fieldset>
+              <fieldset class="grid gap-3" :class="TEM_REDE.includes(editando.dados.tipo) ? 'border-t border-linha pt-2' : ''">
+                <legend v-if="TEM_REDE.includes(editando.dados.tipo)" class="rotulo pr-2 text-tinta">Para entrar na máquina</legend>
+                <div class="grid gap-2" :class="camposDoAcesso(editando.dados.tipo).porta ? 'grid-cols-[1fr_7rem]' : ''">
+                  <label><span class="rotulo">{{ camposDoAcesso(editando.dados.tipo).identificador }}</span><input v-model="editando.dados.identificador" class="campo mt-1" maxlength="200" required /></label>
+                  <label v-if="camposDoAcesso(editando.dados.tipo).porta"><span class="rotulo">Porta</span><input v-model="editando.dados.porta" class="campo mt-1" inputmode="numeric" maxlength="5" /></label>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <label><span class="rotulo">{{ camposDoAcesso(editando.dados.tipo).usuario }}</span><input v-model="editando.dados.usuario" class="campo mt-1" maxlength="120" autocomplete="off" /></label>
+                  <label v-if="modulos.senhasDosClientes"><span class="rotulo">{{ camposDoAcesso(editando.dados.tipo).senha }}{{ editando.id ? ' nova (vazio: não muda)' : '' }}</span>
+                    <input v-model="editando.dados.senha" class="campo mt-1" type="password" maxlength="200" autocomplete="new-password" /></label>
+                </div>
+              </fieldset>
               <label v-if="ficha.maquinas.length"><span class="rotulo">Máquina</span>
                 <select v-model="editando.dados.maquinaId" class="campo mt-1 font-sans"><option :value="null">—</option><option v-for="m in ficha.maquinas" :key="m.id" :value="m.id">{{ m.nome }}</option></select></label>
               <label><span class="rotulo">Observação</span><textarea v-model="editando.dados.observacao" class="campo mt-1 font-sans" rows="2" maxlength="500" placeholder="Sempre colocar a porta ao conectar" /></label>
+            </template>
+
+            <template v-else-if="editando.tipo === 'credenciais'">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label><span class="rotulo">Onde</span>
+                  <select v-model="editando.dados.onde" class="campo mt-1 font-sans"><option v-for="o in ONDE_DA_CREDENCIAL" :key="o.valor" :value="o.valor">{{ o.rotulo }}</option></select></label>
+                <label><span class="rotulo">{{ SERVICO_DE[editando.dados.onde].rotulo }}</span>
+                  <input v-model="editando.dados.servico" class="campo mt-1 font-sans" maxlength="120" :placeholder="SERVICO_DE[editando.dados.onde].exemplo" /></label>
+                <label><span class="rotulo">Usuário</span><input v-model="editando.dados.usuario" class="campo mt-1" maxlength="160" required autocomplete="off" /></label>
+                <label v-if="modulos.senhasDosClientes"><span class="rotulo">{{ editando.id ? 'Senha nova (vazio: não muda)' : 'Senha' }}</span>
+                  <input v-model="editando.dados.senha" class="campo mt-1" type="password" maxlength="200" autocomplete="new-password" /></label>
+              </div>
+              <label v-if="ficha.maquinas.length"><span class="rotulo">Máquina</span>
+                <select v-model="editando.dados.maquinaId" class="campo mt-1 font-sans"><option :value="null">—</option><option v-for="m in ficha.maquinas" :key="m.id" :value="m.id">{{ m.nome }}</option></select></label>
+              <label><span class="rotulo">Observação</span><textarea v-model="editando.dados.observacao" class="campo mt-1 font-sans" rows="2" maxlength="500" placeholder="De quem é, para que serve…" /></label>
             </template>
 
             <p v-if="erroAcao" class="text-sm font-semibold text-carimbo" role="alert">{{ erroAcao }}</p>

@@ -30,7 +30,7 @@ import java.util.UUID;
  * GET    /api/v1/clientes/{id}                       a ficha inteira
  * PUT    /api/v1/clientes/{id}                       altera (clientes.editar)
  * DELETE /api/v1/clientes/{id}                       apaga (clientes.administrar)
- * POST/PUT/DELETE /api/v1/clientes/{id}/{alertas|contatos|maquinas|acessos|anotacoes}[/{item}]  (clientes.editar)
+ * POST/PUT/DELETE /api/v1/clientes/{id}/{alertas|contatos|maquinas|acessos|credenciais|anotacoes}[/{item}]  (clientes.editar)
  * </pre>
  */
 @RestController
@@ -170,6 +170,26 @@ public class ClientesController {
     @DeleteMapping("/{id}/acessos/{item}")
     public ApiResponse<Void> apagarAcesso(@PathVariable UUID id, @PathVariable UUID item) {
         fichas.apagarAcesso(acesso.logado(), id, item);
+        return ApiResponse.ok(null);
+    }
+
+    // ------------------------------------------------------------------------------------------ usuários (sem senha)
+
+    @PostMapping("/{id}/credenciais")
+    public ApiResponse<Criado> criarCredencial(@PathVariable UUID id, @RequestBody Ficha.PedidoCredencial pedido) {
+        return ApiResponse.ok(new Criado(fichas.criarCredencial(acesso.logado(), id, pedido)));
+    }
+
+    @PutMapping("/{id}/credenciais/{item}")
+    public ApiResponse<Void> alterarCredencial(@PathVariable UUID id, @PathVariable UUID item,
+                                               @RequestBody Ficha.PedidoCredencial pedido) {
+        fichas.alterarCredencial(acesso.logado(), id, item, pedido);
+        return ApiResponse.ok(null);
+    }
+
+    @DeleteMapping("/{id}/credenciais/{item}")
+    public ApiResponse<Void> apagarCredencial(@PathVariable UUID id, @PathVariable UUID item) {
+        fichas.apagarCredencial(acesso.logado(), id, item);
         return ApiResponse.ok(null);
     }
 

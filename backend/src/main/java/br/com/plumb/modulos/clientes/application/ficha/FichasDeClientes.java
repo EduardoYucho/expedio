@@ -5,6 +5,7 @@ import br.com.plumb.domain.exception.RecursoNaoEncontradoException;
 import br.com.plumb.domain.exception.RegraNegocioException;
 import br.com.plumb.domain.model.Usuario;
 import br.com.plumb.modulos.clientes.application.acesso.PermissoesDosClientes;
+import br.com.plumb.modulos.clientes.domain.OndeDaCredencial;
 import br.com.plumb.modulos.clientes.domain.PapelDaMaquina;
 import br.com.plumb.modulos.clientes.domain.TipoDeAcesso;
 import org.springframework.stereotype.Service;
@@ -139,6 +140,27 @@ public class FichasDeClientes {
         achou(cadastro.apagarAcesso(cliente, id));
     }
 
+    public UUID criarCredencial(Usuario quem, UUID cliente, Ficha.PedidoCredencial p) {
+        exigir(quem, PermissoesDosClientes.EDITAR);
+        existir(cliente);
+        return cadastro.criarCredencial(cliente, credencial(cliente, p), quem.login());
+    }
+
+    public void alterarCredencial(Usuario quem, UUID cliente, UUID id, Ficha.PedidoCredencial p) {
+        exigir(quem, PermissoesDosClientes.EDITAR);
+        achou(cadastro.alterarCredencial(cliente, id, credencial(cliente, p), quem.login()));
+    }
+
+    /** Como no acesso: apagar o usuário apaga a senha dele, então é só para quem usa as senhas (ou administra). */
+    public void apagarCredencial(Usuario quem, UUID cliente, UUID id) {
+        exigir(quem, PermissoesDosClientes.EDITAR);
+        if (!quem.pode(PermissoesDosClientes.SENHAS) && !quem.pode(PermissoesDosClientes.ADMINISTRAR)) {
+            throw new AcessoNegadoException("SEM_PERMISSAO",
+                    "Apagar um usuário apaga a senha dele: é só para quem usa as senhas dos clientes.");
+        }
+        achou(cadastro.apagarCredencial(cliente, id));
+    }
+
     public UUID criarAnotacao(Usuario quem, UUID cliente, Ficha.PedidoAnotacao p) {
         exigir(quem, PermissoesDosClientes.EDITAR);
         existir(cliente);
@@ -193,7 +215,30 @@ public class FichasDeClientes {
         }
         return new Ficha.PedidoMaquina(texto(p.nome(), 80, "O nome da máquina", true),
                 enumerado(PapelDaMaquina.class, p.papel(), PapelDaMaquina.OUTRA, "O papel da máquina").name(),
+                texto(p.nomeComputador(), 80, "O nome do computador", false),
+                texto(p.ipLocal(), 60, "O IP local", false),
+                texto(p.ipRadmin(), 60, "O IP no Radmin", false),
+                texto(p.sistemaOperacional(), 120, "O sistema operacional", false),
                 texto(p.pastaSistema(), 260, "A pasta do sistema", false),
+                texto(p.bancoDados(), 120, "O banco de dados", false),
+                texto(p.localBase(), 260, "O local da base", false),
+                texto(p.processador(), 120, "O processador", false),
+                texto(p.memoria(), 40, "A memória", false),
+                texto(p.disco(), 120, "O disco", false),
+                texto(p.localBackup(), 260, "O local do backup", false),
+                texto(p.observacao(), 4000, "A observação", false));
+    }
+
+    private Ficha.PedidoCredencial credencial(UUID cliente, Ficha.PedidoCredencial p) {
+        if (p == null) {
+            throw new RegraNegocioException("PEDIDO_VAZIO", "Informe o usuário.");
+        }
+        if (p.maquinaId() != null && !cadastro.maquinaDoCliente(cliente, p.maquinaId())) {
+            throw new RegraNegocioException("MAQUINA_DE_OUTRO_CLIENTE", "A máquina escolhida não é deste cliente.");
+        }
+        return new Ficha.PedidoCredencial(p.maquinaId(),
+                enumerado(OndeDaCredencial.class, p.onde(), null, "Onde o usuário é usado").name(),
+                texto(p.servico(), 120, "O serviço", false), texto(p.usuario(), 160, "O usuário", true),
                 texto(p.observacao(), 500, "A observação", false));
     }
 
@@ -210,6 +255,7 @@ public class FichasDeClientes {
         return new Ficha.PedidoAcesso(p.maquinaId(),
                 enumerado(TipoDeAcesso.class, p.tipo(), null, "O tipo do acesso").name(),
                 texto(p.identificador(), 200, "O ID ou endereço", true), p.porta(),
+                texto(p.rede(), 120, "A rede", false),
                 texto(p.usuario(), 120, "O usuário", false), texto(p.observacao(), 500, "A observação", false));
     }
 

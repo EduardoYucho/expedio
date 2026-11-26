@@ -147,30 +147,30 @@ public class CofreDeAcessos {
 
     // ------------------------------------------------------------------------------------------ senhas
 
-    /** A senha de um acesso (mostrar ou copiar), com registro. */
-    public String senha(Usuario quem, String token, UUID acessoId, String acao, String ip) {
+    /** Uma senha (do acesso, da rede do acesso ou de um usuário do cliente) para mostrar ou copiar, com registro. */
+    public String senha(Usuario quem, String token, AlvoDoCofre alvo, String acao, String ip) {
         exigirAberto(quem, token);
         String registrada = "COPIAR".equalsIgnoreCase(acao) ? "COPIOU" : "MOSTROU";
-        RegistroDoCofre.SenhaGuardada guardada = registro.senha(acessoId).orElseThrow(CofreDeAcessos::semAcesso);
+        RegistroDoCofre.SenhaGuardada guardada = registro.senha(alvo).orElseThrow(() -> semAlvo(alvo));
         if (guardada.senha() == null) {
-            throw new RegraNegocioException("SEM_SENHA", "Este acesso não tem senha guardada.");
+            throw new RegraNegocioException("SEM_SENHA", "Não há senha guardada aqui.");
         }
-        String senha = chaves.decifrar(guardada.senha(), acessoId);
-        registro.registrarUso(quem.login(), registrada, guardada.clienteId(), acessoId, guardada.descricao(), ip);
+        String senha = chaves.decifrar(guardada.senha(), alvo.dono());
+        registro.registrarUso(quem.login(), registrada, guardada.clienteId(), alvo, guardada.descricao(), ip);
         return senha;
     }
 
-    /** Grava (ou, vazia, apaga) a senha de um acesso. */
-    public void gravarSenha(Usuario quem, String token, UUID acessoId, String senha, String ip) {
+    /** Grava (ou, vazia, apaga) uma senha. */
+    public void gravarSenha(Usuario quem, String token, AlvoDoCofre alvo, String senha, String ip) {
         exigirAberto(quem, token);
         if (senha != null && senha.length() > TAMANHO_MAXIMO_DA_SENHA) {
             throw new RegraNegocioException("SENHA_GRANDE_DEMAIS",
                     "A senha pode ter até %d caracteres.".formatted(TAMANHO_MAXIMO_DA_SENHA));
         }
-        RegistroDoCofre.SenhaGuardada guardada = registro.senha(acessoId).orElseThrow(CofreDeAcessos::semAcesso);
+        RegistroDoCofre.SenhaGuardada guardada = registro.senha(alvo).orElseThrow(() -> semAlvo(alvo));
         boolean apagar = senha == null || senha.isEmpty();
-        registro.gravarSenha(acessoId, apagar ? null : chaves.cifrar(senha, acessoId), quem.login(), relogio.instant());
-        registro.registrarUso(quem.login(), apagar ? "APAGOU" : "ALTEROU", guardada.clienteId(), acessoId,
+        registro.gravarSenha(alvo, apagar ? null : chaves.cifrar(senha, alvo.dono()), quem.login(), relogio.instant());
+        registro.registrarUso(quem.login(), apagar ? "APAGOU" : "ALTEROU", guardada.clienteId(), alvo,
                 guardada.descricao(), ip);
     }
 
@@ -316,7 +316,9 @@ public class CofreDeAcessos {
         }
     }
 
-    private static RecursoNaoEncontradoException semAcesso() {
-        return new RecursoNaoEncontradoException("ACESSO_NAO_ENCONTRADO", "Este acesso não existe mais.");
+    private static RecursoNaoEncontradoException semAlvo(AlvoDoCofre alvo) {
+        return alvo.tipo() == AlvoDoCofre.Tipo.CREDENCIAL
+                ? new RecursoNaoEncontradoException("USUARIO_NAO_ENCONTRADO", "Este usuário não existe mais.")
+                : new RecursoNaoEncontradoException("ACESSO_NAO_ENCONTRADO", "Este acesso não existe mais.");
     }
 }

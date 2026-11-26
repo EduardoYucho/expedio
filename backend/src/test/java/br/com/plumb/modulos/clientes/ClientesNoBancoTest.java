@@ -7,6 +7,7 @@ import br.com.plumb.domain.exception.RegraNegocioException;
 import br.com.plumb.domain.model.Usuario;
 import br.com.plumb.modulos.PostgresDeTeste;
 import br.com.plumb.modulos.clientes.application.acesso.PermissoesDosClientes;
+import br.com.plumb.modulos.clientes.application.cofre.AlvoDoCofre;
 import br.com.plumb.modulos.clientes.application.cofre.CofreDeAcessos;
 import br.com.plumb.modulos.clientes.application.cofre.RegistroDoCofre;
 import br.com.plumb.modulos.clientes.application.ficha.Ficha;
@@ -77,9 +78,9 @@ class ClientesNoBancoTest {
         fichas.criar(suporte, new Ficha.PedidoCliente("MH Modas - Tubarão", "mh", null, "Tubarão", true, "555", null));
         fichas.criarAlerta(suporte, id, new Ficha.PedidoAlerta("Nunca excluam nada: ligar para Jorge/Duda", null));
         fichas.criarContato(suporte, id, new Ficha.PedidoContato("Jorge", "Dono", "48 99999-0000", null, true, null));
-        UUID servidor = fichas.criarMaquina(suporte, id, new Ficha.PedidoMaquina("Servidor", "servidor_central",
+        UUID servidor = fichas.criarMaquina(suporte, id, maquina("Servidor", "servidor_central",
                 "C:\\sislojas", null));
-        fichas.criarAcesso(suporte, id, new Ficha.PedidoAcesso(servidor, "anydesk", "344 788 178", null, null, null));
+        fichas.criarAcesso(suporte, id, acesso(servidor, "anydesk", "344 788 178", null, null, null));
         fichas.criarAnotacao(suporte, id, new Ficha.PedidoAnotacao("Impressora padrão deve ser a HP"));
 
         assertThat(fichas.grupos()).containsExactly("MH");
@@ -116,16 +117,16 @@ class ClientesNoBancoTest {
     void regras() {
         UUID a = fichas.criar(suporte, new Ficha.PedidoCliente("Cliente A", null, null, null, null, null, null));
         UUID b = fichas.criar(suporte, new Ficha.PedidoCliente("Cliente B", null, null, null, null, null, null));
-        UUID maquinaDeB = fichas.criarMaquina(suporte, b, new Ficha.PedidoMaquina("Caixa", "CAIXA", null, null));
+        UUID maquinaDeB = fichas.criarMaquina(suporte, b, maquina("Caixa", "CAIXA", null, null));
         assertCodigo(() -> fichas.criar(suporte, new Ficha.PedidoCliente(" ", null, null, null, null, null, null)),
                 "CAMPO_OBRIGATORIO");
         assertCodigo(() -> fichas.criar(suporte, new Ficha.PedidoCliente("x".repeat(161), null, null, null, null, null,
                 null)), "CAMPO_GRANDE_DEMAIS");
-        assertCodigo(() -> fichas.criarAcesso(suporte, a, new Ficha.PedidoAcesso(null, "telepatia", "1", null, null,
+        assertCodigo(() -> fichas.criarAcesso(suporte, a, acesso(null, "telepatia", "1", null, null,
                 null)), "VALOR_INVALIDO");
-        assertCodigo(() -> fichas.criarAcesso(suporte, a, new Ficha.PedidoAcesso(null, "RDP", "10.0.0.1", 70000, null,
+        assertCodigo(() -> fichas.criarAcesso(suporte, a, acesso(null, "RDP", "10.0.0.1", 70000, null,
                 null)), "PORTA_INVALIDA");
-        assertCodigo(() -> fichas.criarAcesso(suporte, a, new Ficha.PedidoAcesso(maquinaDeB, "RDP", "10.0.0.1", null,
+        assertCodigo(() -> fichas.criarAcesso(suporte, a, acesso(maquinaDeB, "RDP", "10.0.0.1", null,
                 null, null)), "MAQUINA_DE_OUTRO_CLIENTE");
         // item de outro cliente não é alterado nem apagado por este
         assertThatThrownBy(() -> fichas.apagarMaquina(suporte, a, maquinaDeB))
@@ -140,7 +141,7 @@ class ClientesNoBancoTest {
         assertThatThrownBy(() -> fichas.criar(soVer, new Ficha.PedidoCliente("X", null, null, null, null, null, null)))
                 .isInstanceOf(AcessoNegadoException.class);
         UUID id = fichas.criar(semSenhas, new Ficha.PedidoCliente("X", null, null, null, null, null, null));
-        UUID acesso = fichas.criarAcesso(semSenhas, id, new Ficha.PedidoAcesso(null, "RADMIN", "26.1.2.3", 54888,
+        UUID acesso = fichas.criarAcesso(semSenhas, id, acesso(null, "RADMIN", "26.1.2.3", 54888,
                 null, null));
         assertThatThrownBy(() -> fichas.apagarAcesso(semSenhas, id, acesso)).isInstanceOf(AcessoNegadoException.class);
         assertThatThrownBy(() -> fichas.apagar(semSenhas, id)).isInstanceOf(AcessoNegadoException.class);
@@ -155,17 +156,17 @@ class ClientesNoBancoTest {
     @DisplayName("Cofre: autenticador, abrir, mostrar/copiar com registro; a senha nunca aparece na ficha nem na busca")
     void cofre() throws Exception {
         UUID cliente = fichas.criar(suporte, new Ficha.PedidoCliente("Super M", null, null, null, null, null, null));
-        UUID acesso = fichas.criarAcesso(suporte, cliente, new Ficha.PedidoAcesso(null, "ANYDESK", "681337782", null,
+        UUID acesso = fichas.criarAcesso(suporte, cliente, acesso(null, "ANYDESK", "681337782", null,
                 null, null));
 
         // sem o cofre aberto, nada
-        assertCodigo(() -> cofre.senha(suporte, null, acesso, "MOSTRAR", "26.1.1.1"), "COFRE_FECHADO");
+        assertCodigo(() -> cofre.senha(suporte, null, AlvoDoCofre.acesso(acesso, null), "MOSTRAR", "26.1.1.1"), "COFRE_FECHADO");
         assertCodigo(() -> cofre.abrir(suporte, "123456", "26.1.1.1"), "SEM_AUTENTICADOR");
 
         String token = ativar(suporte);
-        cofre.gravarSenha(suporte, token, acesso, "S3nh@-do-cliente", "26.1.1.1");
-        assertThat(cofre.senha(suporte, token, acesso, "COPIAR", "26.1.1.1")).isEqualTo("S3nh@-do-cliente");
-        assertThat(cofre.senha(suporte, token, acesso, "MOSTRAR", "26.1.1.1")).isEqualTo("S3nh@-do-cliente");
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.acesso(acesso, null), "S3nh@-do-cliente", "26.1.1.1");
+        assertThat(cofre.senha(suporte, token, AlvoDoCofre.acesso(acesso, null), "COPIAR", "26.1.1.1")).isEqualTo("S3nh@-do-cliente");
+        assertThat(cofre.senha(suporte, token, AlvoDoCofre.acesso(acesso, null), "MOSTRAR", "26.1.1.1")).isEqualTo("S3nh@-do-cliente");
 
         // a ficha e a busca, como a API as devolve, não têm a senha nem o valor cifrado
         ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -179,14 +180,14 @@ class ClientesNoBancoTest {
         assertThat(noBanco).doesNotContain("S3nh@");
 
         // o token é da pessoa: outra pessoa com ele não abre
-        assertCodigo(() -> cofre.senha(admin, token, acesso, "MOSTRAR", "26.1.1.2"), "COFRE_FECHADO");
+        assertCodigo(() -> cofre.senha(admin, token, AlvoDoCofre.acesso(acesso, null), "MOSTRAR", "26.1.1.2"), "COFRE_FECHADO");
         // quem não pode usar senhas nem com token
-        assertThatThrownBy(() -> cofre.senha(semSenhas, token, acesso, "MOSTRAR", "26.1.1.3"))
+        assertThatThrownBy(() -> cofre.senha(semSenhas, token, AlvoDoCofre.acesso(acesso, null), "MOSTRAR", "26.1.1.3"))
                 .isInstanceOf(AcessoNegadoException.class).hasFieldOrPropertyWithValue("codigo", "SEM_PERMISSAO");
 
         // passado o tempo, fecha sozinho
         relogio.andar(Duration.ofMinutes(11));
-        assertCodigo(() -> cofre.senha(suporte, token, acesso, "MOSTRAR", "26.1.1.1"), "COFRE_FECHADO");
+        assertCodigo(() -> cofre.senha(suporte, token, AlvoDoCofre.acesso(acesso, null), "MOSTRAR", "26.1.1.1"), "COFRE_FECHADO");
 
         List<RegistroDoCofre.Uso> usos = cofre.usos(admin, cliente, 50);
         assertThat(usos).extracting(RegistroDoCofre.Uso::acao).containsExactly("MOSTROU", "COPIOU", "ALTEROU");
@@ -251,7 +252,127 @@ class ClientesNoBancoTest {
         assertCodigo(() -> cofre.restaurarChave(admin, "uma frase bem comprida", "ip"), "COFRE_NAO_TRANCADO");
     }
 
+    @Test
+    @DisplayName("Radmin com rede: duas senhas separadas; uma não abre no lugar da outra")
+    void senhaDaRede() {
+        UUID cliente = fichas.criar(suporte, new Ficha.PedidoCliente("Bolichão", null, null, null, null, null, null));
+        UUID radmin = fichas.criarAcesso(suporte, cliente, new Ficha.PedidoAcesso(null, "RADMIN", "26.7.210.169", null,
+                "bolichao-rede", "Administrador", null));
+        String token = ativar(suporte);
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.acesso(radmin, "rede"), "senha-da-rede", "ip");
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.acesso(radmin, null), "senha-do-windows", "ip");
+
+        assertThat(cofre.senha(suporte, token, AlvoDoCofre.acesso(radmin, "rede"), "MOSTRAR", "ip"))
+                .isEqualTo("senha-da-rede");
+        assertThat(cofre.senha(suporte, token, AlvoDoCofre.acesso(radmin, null), "MOSTRAR", "ip"))
+                .isEqualTo("senha-do-windows");
+        assertThat(fichas.ficha(cliente).acessos()).singleElement().satisfies(a -> {
+            assertThat(a.rede()).isEqualTo("bolichao-rede");
+            assertThat(a.temSenhaDaRede()).isTrue();
+            assertThat(a.temSenha()).isTrue();
+            assertThat(a.senhaDaRedeAlteradaPor()).isEqualTo("suporte");
+        });
+        assertThat(fichas.buscar("bolichao-rede", null)).hasSize(1);
+
+        // a senha da rede copiada para a coluna da senha da máquina não abre (o dono da cifra é outro)
+        PostgresDeTeste.jdbc().sql("""
+                        UPDATE clientes.acesso SET senha_cifrada = rede_senha_cifrada, senha_vetor = rede_senha_vetor
+                         WHERE id = :id""").param("id", radmin).update();
+        assertCodigo(() -> cofre.senha(suporte, token, AlvoDoCofre.acesso(radmin, null), "MOSTRAR", "ip"),
+                "COFRE_NAO_ABRE");
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.acesso(radmin, null), "senha-do-windows", "ip");
+
+        // apagar a senha da rede deixa a outra
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.acesso(radmin, "rede"), "", "ip");
+        assertThat(fichas.ficha(cliente).acessos()).singleElement().satisfies(a -> {
+            assertThat(a.temSenhaDaRede()).isFalse();
+            assertThat(a.temSenha()).isTrue();
+        });
+        assertThat(cofre.usos(admin, cliente, 50)).extracting(RegistroDoCofre.Uso::descricao)
+                .contains("Bolichão · RADMIN 26.7.210.169 (rede bolichao-rede)");
+    }
+
+    @Test
+    @DisplayName("Usuários do cliente: cadastro, senha no cofre, auditoria, busca e permissões")
+    void usuariosDoCliente() throws Exception {
+        UUID cliente = fichas.criar(suporte, new Ficha.PedidoCliente("Loja X", null, null, null, null, null, null));
+        UUID outro = fichas.criar(suporte, new Ficha.PedidoCliente("Loja Y", null, null, null, null, null, null));
+        UUID servidor = fichas.criarMaquina(suporte, cliente, new Ficha.PedidoMaquina("Servidor", "SERVIDOR", "SRV-LOJA",
+                "192.168.0.10", "26.1.2.3", "Windows Server 2019", "C:\\sislojas", "Firebird 2.5",
+                "C:\\sislojas\\dados\\BASE.FDB", "Xeon E3", "16 GB", "SSD 480 GB", "D:\\backup", "Fica no estoque"));
+        UUID maquinaDeOutro = fichas.criarMaquina(suporte, outro, maquina("Caixa", "CAIXA", null, null));
+
+        UUID sistema = fichas.criarCredencial(suporte, cliente, new Ficha.PedidoCredencial(null, "sistema", "Sislojas",
+                "gerente", "Usuário do gerente"));
+        UUID banco = fichas.criarCredencial(suporte, cliente, new Ficha.PedidoCredencial(servidor, "BANCO", "Firebird",
+                "SYSDBA", null));
+        assertCodigo(() -> fichas.criarCredencial(suporte, cliente, new Ficha.PedidoCredencial(null, "telepatia", null,
+                "x", null)), "VALOR_INVALIDO");
+        assertCodigo(() -> fichas.criarCredencial(suporte, cliente, new Ficha.PedidoCredencial(null, "WINDOWS", null,
+                " ", null)), "CAMPO_OBRIGATORIO");
+        assertCodigo(() -> fichas.criarCredencial(suporte, cliente, new Ficha.PedidoCredencial(maquinaDeOutro, "WINDOWS",
+                null, "caixa", null)), "MAQUINA_DE_OUTRO_CLIENTE");
+
+        String token = ativar(suporte);
+        cofre.gravarSenha(suporte, token, AlvoDoCofre.credencial(banco), "masterkey-xyz", "ip");
+        assertThat(cofre.senha(suporte, token, AlvoDoCofre.credencial(banco), "COPIAR", "ip")).isEqualTo("masterkey-xyz");
+        assertCodigo(() -> cofre.senha(suporte, token, AlvoDoCofre.credencial(sistema), "MOSTRAR", "ip"), "SEM_SENHA");
+        assertCodigo(() -> cofre.senha(suporte, token, AlvoDoCofre.credencial(UUID.randomUUID()), "MOSTRAR", "ip"),
+                "USUARIO_NAO_ENCONTRADO");
+        // o id de um usuário não serve como id de acesso
+        assertCodigo(() -> cofre.senha(suporte, token, AlvoDoCofre.acesso(banco, null), "MOSTRAR", "ip"),
+                "ACESSO_NAO_ENCONTRADO");
+
+        Ficha.Completa f = fichas.ficha(cliente);
+        assertThat(f.credenciais()).extracting(Ficha.Credencial::onde).containsExactly("SISTEMA", "BANCO");
+        assertThat(f.credenciais()).filteredOn(c -> c.id().equals(banco)).singleElement().satisfies(c -> {
+            assertThat(c.temSenha()).isTrue();
+            assertThat(c.maquinaId()).isEqualTo(servidor);
+        });
+        assertThat(f.maquinas()).singleElement().satisfies(m -> {
+            assertThat(m.nomeComputador()).isEqualTo("SRV-LOJA");
+            assertThat(m.bancoDados()).isEqualTo("Firebird 2.5");
+            assertThat(m.localBackup()).isEqualTo("D:\\backup");
+        });
+        ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
+        assertThat(json.writeValueAsString(f)).doesNotContain("masterkey").doesNotContain("cifrad");
+        assertThat(fichas.buscar("sysdba", null)).extracting(Ficha.Resumo::nome).containsExactly("Loja X");
+        assertThat(fichas.buscar("srv-loja", null)).extracting(Ficha.Resumo::nome).containsExactly("Loja X");
+
+        List<RegistroDoCofre.Uso> usos = cofre.usos(admin, cliente, 50);
+        assertThat(usos).extracting(RegistroDoCofre.Uso::acao).containsExactly("COPIOU", "ALTEROU");
+        assertThat(usos).allSatisfy(u -> {
+            assertThat(u.credencialId()).isEqualTo(banco);
+            assertThat(u.acessoId()).isNull();
+            assertThat(u.descricao()).isEqualTo("Loja X · BANCO Firebird SYSDBA");
+        });
+
+        // quem não usa senhas não apaga (a senha iria junto); quem usa, apaga
+        assertThatThrownBy(() -> fichas.apagarCredencial(semSenhas, cliente, banco))
+                .isInstanceOf(AcessoNegadoException.class);
+        assertThatThrownBy(() -> fichas.apagarCredencial(suporte, outro, banco))
+                .hasFieldOrPropertyWithValue("codigo", "ITEM_NAO_ENCONTRADO");
+        fichas.apagarCredencial(suporte, cliente, banco);
+        assertThat(fichas.ficha(cliente).credenciais()).extracting(Ficha.Credencial::id).containsExactly(sistema);
+        // a máquina apagada solta o usuário, que continua na ficha
+        fichas.alterarCredencial(suporte, cliente, sistema, new Ficha.PedidoCredencial(servidor, "SISTEMA", "Sislojas",
+                "gerente", null));
+        fichas.apagarMaquina(suporte, cliente, servidor);
+        assertThat(fichas.ficha(cliente).credenciais()).singleElement()
+                .satisfies(c -> assertThat(c.maquinaId()).isNull());
+    }
+
     // ------------------------------------------------------------------------------------------ auxiliares
+
+    private static Ficha.PedidoMaquina maquina(String nome, String papel, String pasta, String observacao) {
+        return new Ficha.PedidoMaquina(nome, papel, null, null, null, null, pasta, null, null, null, null, null, null,
+                observacao);
+    }
+
+    private static Ficha.PedidoAcesso acesso(UUID maquina, String tipo, String identificador, Integer porta,
+                                             String usuario, String observacao) {
+        return new Ficha.PedidoAcesso(maquina, tipo, identificador, porta, null, usuario, observacao);
+    }
 
     private String ativar(Usuario quem) {
         byte[] segredo = segredoDe(cofre.novoAutenticador(quem));
