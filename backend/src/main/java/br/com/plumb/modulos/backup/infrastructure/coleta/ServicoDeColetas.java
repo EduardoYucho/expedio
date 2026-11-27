@@ -234,7 +234,9 @@ public class ServicoDeColetas {
             try {
                 repositorio.apagarColeta(coleta);
             } catch (IOException e) {
-                throw new ErroDeColeta(500, "FALHA_AO_APAGAR", "Não consegui apagar: " + e.getMessage());
+                LOG.warn("Não consegui apagar a coleta {}: {}", id, e.toString());
+                throw new ErroDeColeta(500, "FALHA_AO_APAGAR", "Não consegui apagar os arquivos desta coleta: algum deles "
+                        + "está aberto em outro programa ou sem permissão. Feche o que estiver usando a pasta e tente de novo.");
             }
             porId.remove(id);
             idPorToken.remove(coleta.token);

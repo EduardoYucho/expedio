@@ -18,7 +18,16 @@ import java.time.Duration;
  */
 @Component
 public record ConfiguracaoDaRedacao(String modelo, int tentativas, int maxTokensSaida, Double temperatura,
-                                    String raciocinio, Duration margemDaLinha, long imagemMaximaNaCopia) {
+                                    String raciocinio, Duration margemDaLinha, long imagemMaximaNaCopia,
+                                    int contextoLocal) {
+
+    /** Quantos tokens a IA local lê de uma vez, quando a configuração não diz (atendimento.ia.local.contexto). */
+    public static final int CONTEXTO_PADRAO = 24576;
+
+    public ConfiguracaoDaRedacao(String modelo, int tentativas, int maxTokensSaida, Double temperatura, String raciocinio,
+                                 Duration margemDaLinha, long imagemMaximaNaCopia) {
+        this(modelo, tentativas, maxTokensSaida, temperatura, raciocinio, margemDaLinha, imagemMaximaNaCopia, CONTEXTO_PADRAO);
+    }
 
     @Autowired
     public ConfiguracaoDaRedacao(@Value("${atendimento.ia.motor:local}") String motor,
@@ -29,12 +38,13 @@ public record ConfiguracaoDaRedacao(String modelo, int tentativas, int maxTokens
                                  @Value("${atendimento.gemini.temperatura:}") String temperatura,
                                  @Value("${atendimento.gemini.raciocinio:}") String raciocinio,
                                  @Value("${atendimento.linha-do-tempo.margem:1h}") Duration margemDaLinha,
-                                 @Value("${atendimento.copia.imagem-maxima:10MB}") DataSize imagemMaximaNaCopia) {
+                                 @Value("${atendimento.copia.imagem-maxima:10MB}") DataSize imagemMaximaNaCopia,
+                                 @Value("${atendimento.ia.local.contexto:24576}") int contextoLocal) {
         this(ConfiguracaoDaAnalise.local(motor) ? modeloLocal.strip() : modelo.strip(), Math.max(1, tentativas),
                 maxTokensSaida,
                 ConfiguracaoDaAnalise.local(motor) || temperatura == null || temperatura.isBlank() ? null
                         : Double.valueOf(temperatura.strip()),
                 ConfiguracaoDaAnalise.local(motor) || raciocinio == null || raciocinio.isBlank() ? null
-                        : raciocinio.strip(), margemDaLinha, imagemMaximaNaCopia.toBytes());
+                        : raciocinio.strip(), margemDaLinha, imagemMaximaNaCopia.toBytes(), contextoLocal);
     }
 }

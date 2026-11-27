@@ -209,11 +209,11 @@ public class BaixadorHttp implements Baixador {
                     + "arquivo à mão.", false, status);
         }
         if (status == 408 || status == 429 || status >= 500) {
-            throw new FalhaNoDownload("DOWNLOAD_FALHOU", "O armazenamento do Digisac não respondeu agora (HTTP " + status
-                    + "). Uma nova tentativa será feita.", true, status);
+            throw new FalhaNoDownload("DOWNLOAD_FALHOU", "O armazenamento do Digisac está fora do ar ou "
+                    + "sobrecarregado agora. Uma nova tentativa será feita.", true, status);
         }
-        throw new FalhaNoDownload("DOWNLOAD_RECUSADO", "O armazenamento do Digisac recusou o download (HTTP " + status
-                + "). Envie o arquivo à mão.", false, status);
+        throw new FalhaNoDownload("DOWNLOAD_RECUSADO", "O armazenamento do Digisac recusou o download. "
+                + "Envie o arquivo à mão.", false, status);
     }
 
     private static long totalDoContentRange(String cabecalho) {

@@ -8,7 +8,7 @@ import { useRecepcaoStore } from '@/modulos/backup/recepcao'
 import { escolherPasta, gravarPastaDaColeta, gravarPastaPadrao, pastaPadrao, permissao, seletorDisponivel } from '@/modulos/backup/destino'
 import { novaChave } from '@/modulos/backup/cifra'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
-import { mensagemDe } from '@/utils/erros'
+import { ErroClaro, mensagemDe, motivoDe } from '@/utils/erros'
 import { ACESSOS } from '@/utils/permissoes'
 
 /**
@@ -133,7 +133,7 @@ async function trocarDestino() {
   } catch (e) {
     aviso.value = e?.name === 'SecurityError' || e?.name === 'NotAllowedError'
       ? 'O navegador não deixou usar essa pasta (ele bloqueia a raiz do disco e pastas do sistema). Escolha outra, por exemplo D:\\Backups.'
-      : `Não consegui abrir a pasta: ${e.message}`
+      : `Não consegui abrir a pasta: ${motivoDe(e)}.`
   }
 }
 
@@ -206,7 +206,7 @@ async function copiar(texto, chave) {
 function gerarLink() {
   acao(async () => {
     if (destinoSemPermissao.value) await confirmarDestino()
-    if (!destino.value || destinoSemPermissao.value) throw new Error('Escolha a pasta deste computador onde o backup vai ficar.')
+    if (!destino.value || destinoSemPermissao.value) throw new ErroClaro('Escolha a pasta deste computador onde o backup vai ficar.')
     const c = await backupApi.criarColeta(clienteEscolhido.value)
     const chave = novaChave()
     await gravarPastaDaColeta(c.id, destino.value, c.nome, chave)
@@ -236,7 +236,7 @@ function cancelar(c) {
 
 function extrair(c) {
   aviso.value = ''
-  recepcao.extrair(c.id).catch((e) => (aviso.value = e.message))
+  recepcao.extrair(c.id).catch((e) => (aviso.value = mensagemDe(e)))
 }
 
 // ------------------------------------------------------------------ clientes

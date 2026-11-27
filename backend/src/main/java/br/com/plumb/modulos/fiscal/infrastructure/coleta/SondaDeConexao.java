@@ -197,8 +197,8 @@ public class SondaDeConexao {
             return new Resposta(Situacao.NORMAL, "Respondeu em %d ms (teste de conexão, sem certificado).".formatted(ms),
                     ms, true);
         } catch (IOException e) {
-            return new Resposta(Situacao.FORA, "Erro de rede: " + (e.getMessage() == null ? e.getClass().getSimpleName()
-                    : e.getMessage()), null, false);
+            org.slf4j.LoggerFactory.getLogger(SondaDeConexao.class).info("Teste de conexão: {}", e.toString());
+            return new Resposta(Situacao.FORA, "A conexão caiu antes de o servidor responder.", null, false);
         }
     }
 

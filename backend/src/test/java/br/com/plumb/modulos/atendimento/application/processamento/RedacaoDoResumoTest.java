@@ -489,7 +489,7 @@ class RedacaoDoResumoTest {
 
         esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
         assertThat(resumo(id).situacao()).isEqualTo("falhou");
-        assertThat(resumo(id).erro()).contains("Resposta inválida do Gemini");
+        assertThat(resumo(id).erro()).contains("respondeu fora do formato pedido duas vezes");
         assertThat(redacoes()).as("uma nova tentativa na hora").hasSize(2);
         SaidaView falhou = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
         assertThat(falhou.situacao()).isEqualTo("falhou");

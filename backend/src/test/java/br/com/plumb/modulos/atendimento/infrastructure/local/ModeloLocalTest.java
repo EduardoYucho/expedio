@@ -446,7 +446,8 @@ class ModeloLocalTest {
         assertThatThrownBy(() -> modelo().gerar("ia-local", pedido(null, ESQUEMA)))
                 .isInstanceOfSatisfying(FalhaDoModelo.class, f -> {
                     assertThat(f.tipo()).isEqualTo(FalhaDoModelo.Tipo.INDISPONIVEL);
-                    assertThat(f.getMessage()).contains("out of memory");
+                    assertThat(f.getMessage()).contains("sem memória na placa de vídeo").doesNotContain("CUDA");
+                    assertThat(f.detalhe()).contains("out of memory");
                 });
     }
 

@@ -1,5 +1,6 @@
 // Página de coleta: escolhe a pasta do sistema, lê, compacta e envia ao sistema, continuando de onde parou.
 import { blocos, PrecisaVoltar } from './nucleo/empacotador.js';
+import { ErroClaro, motivoDoErro } from './nucleo/erros.js';
 import { montarEnvelope } from './nucleo/envelope.js';
 import { sha256Hex } from './nucleo/sha256.js';
 import { listar, filtrar, oQuePesa, JA_COMPACTADOS, FORA } from './lista.js';
@@ -34,11 +35,13 @@ const sessao = (() => {
 
 // ------------------------------------------------------------------ apoio
 
+/** A recusa do sistema: a mensagem vem escrita por ele, para a pessoa. */
 class ErroHttp extends Error {
   constructor(status, codigo, mensagem) {
-    super(mensagem || `Erro ${status}`);
+    super(mensagem || 'O sistema não aceitou o pedido agora. Tente de novo; se continuar, avise quem mandou o link.');
     this.status = status;
     this.codigo = codigo;
+    this.claro = true;
   }
 }
 
@@ -67,7 +70,7 @@ async function pedir(metodo, caminho, corpo, { tempoMs = 60000, binario = false 
       dados = null;
     }
     if (!resposta.ok) {
-      throw new ErroHttp(resposta.status, dados && dados.codigo, (dados && dados.mensagem) || `O sistema respondeu ${resposta.status}.`);
+      throw new ErroHttp(resposta.status, dados && dados.codigo, (dados && dados.mensagem) || null);
     }
     return dados;
   } finally {
@@ -141,10 +144,13 @@ class Compactadores {
         this.espera.delete(m.id);
         this.livres.push(worker);
         this._despachar();
-        if (m.erro) tarefa.rejeitar(new Error(m.erro));
+        if (m.erro) tarefa.rejeitar(new ErroClaro(m.erro));
         else tarefa.resolver(m.quadro);
       };
-      worker.onerror = (ev) => rejeitar(new Error(`O compactador não iniciou: ${ev.message || 'erro no worker'}`));
+      worker.onerror = (ev) => {
+        console.error('compactador', ev);
+        rejeitar(new ErroClaro('O compactador não abriu neste navegador. Use o Chrome ou o Edge atualizados e recarregue a página.'));
+      };
     });
   }
   compactar(dados) {
@@ -316,7 +322,7 @@ async function escolherPasta() {
     if (erro.name === 'AbortError') return;
     erroNaTela(erro.name === 'SecurityError' || erro.name === 'NotAllowedError'
       ? 'O navegador não deixou escolher essa pasta (ele bloqueia a raiz do disco e pastas do sistema). Escolha a pasta do sistema, por exemplo C:\\sislojas.'
-      : `Não consegui abrir a pasta: ${erro.message}`);
+      : `Não consegui abrir a pasta: ${motivoDoErro(erro)}.`);
     return;
   }
   est.pasta = pasta;
@@ -457,7 +463,7 @@ async function novaLeituraPeloServidor(entradas, naoLidosIniciais) {
       info = await registrarGeracao(erro.caminho);
     }
   }
-  throw new Error('A leitura não conseguiu um ponto estável para continuar. Recarregue a página.');
+  throw new ErroClaro('A leitura não conseguiu um ponto estável para continuar. Recarregue a página.');
 }
 
 function contarTotais(entradas) {
@@ -724,7 +730,7 @@ async function enviar() {
         } else if (erro instanceof ErroHttp && erro.codigo === 'PEDACO_ADIANTADO') {
           est.avisoEnvio = '';
         } else {
-          est.avisoEnvio = `Sem conexão com o sistema (${erro.name === 'AbortError' ? 'tempo esgotado' : erro.message}). Tentando de novo em ${Math.round(pausa / 1000)} s…`;
+          est.avisoEnvio = `Sem conexão com o sistema (${erro.name === 'AbortError' ? 'o tempo esgotou' : 'a internet caiu ou o sistema não respondeu'}). Tentando de novo em ${Math.round(pausa / 1000)} s…`;
         }
         await espera(pausa);
         pausa = Math.min(pausa * 2, 30000);
@@ -878,7 +884,7 @@ function falhaGeral(erro) {
   est.trabalhando = false;
   window.onbeforeunload = null;
   console.error(erro);
-  const texto = erro instanceof ErroHttp ? erro.message : `Falhou: ${erro.message || erro}`;
+  const texto = erro instanceof ErroHttp ? erro.message : `Falhou: ${motivoDoErro(erro)}.`;
   erroNaTela(`${texto} Recarregue a página para continuar de onde parou.`);
 }
 

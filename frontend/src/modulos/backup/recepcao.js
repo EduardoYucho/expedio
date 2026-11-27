@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { reactive } from 'vue'
 import { backupApi } from '@/modulos/backup/api'
-import { mensagemDe } from '@/utils/erros'
+import { ErroClaro, mensagemDe } from '@/utils/erros'
 import { pastaDaColeta, permissao, pedirPermissao, escolherPasta } from '@/modulos/backup/destino'
 import { importarChave, decifrar } from '@/modulos/backup/cifra'
 
@@ -42,6 +42,8 @@ async function existe(pasta, nome) {
   }
 }
 
+const QUEBROU_O_WORKER = 'O montador do backup não abriu neste navegador. Recarregue a página; se continuar, use o Chrome ou o Edge atualizados.'
+
 /** Roda o worker que monta/extrai (os arquivos da página de coleta, servidos pelo sistema em /c/_/). */
 function rodarWorker(pedido, aoAvancar) {
   return new Promise((resolver, rejeitar) => {
@@ -52,12 +54,13 @@ function rodarWorker(pedido, aoAvancar) {
         return
       }
       worker.terminate()
-      if (ev.data.erro) rejeitar(new Error(ev.data.erro))
+      if (ev.data.erro) rejeitar(new ErroClaro(ev.data.erro))
       else resolver(ev.data.resultado)
     }
     worker.onerror = (ev) => {
       worker.terminate()
-      rejeitar(new Error(ev.message || 'falha no worker'))
+      console.error('[backup] worker', ev)
+      rejeitar(new ErroClaro(QUEBROU_O_WORKER))
     }
     worker.postMessage(pedido)
   })
@@ -99,14 +102,17 @@ function acompanhamento(pasta, nome, ja) {
         v()
       }
     } else if (m.fim) {
-      if (m.erro) parar(new Error(m.erro))
+      if (m.erro) parar(new ErroClaro(m.erro))
       else {
         worker.terminate()
         aoFim.resolver(m.resultado)
       }
     }
   }
-  worker.onerror = (ev) => parar(new Error(ev.message || 'falha no worker'))
+  worker.onerror = (ev) => {
+    console.error('[backup] worker', ev)
+    parar(new ErroClaro(QUEBROU_O_WORKER))
+  }
   worker.postMessage({ acao: 'acompanhar', pasta, nome, ja })
   return {
     estado,
@@ -180,7 +186,7 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
 
   async function receber(id, { pasta, nome, chave: textoDaChave }, controle) {
     marcar(id, { fase: 'recebendo', pasta: pasta.name, chave: textoDaChave ?? null, mensagem: '' })
-    if (!textoDaChave) throw new Error('Esta coleta não tem a chave neste navegador: gere um link novo.')
+    if (!textoDaChave) throw new ErroClaro('Esta coleta não tem a chave neste navegador: gere um link novo.')
     const chave = await importarChave(textoDaChave)
     let pausa = 2000
     let acomp = null
@@ -299,9 +305,9 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
   /** Extrai um backup recebido neste navegador numa pasta escolhida agora (deste computador). */
   async function extrair(id) {
     const registro = await pastaDaColeta(id)
-    if (!registro) throw new Error('Este backup não foi recebido neste navegador.')
+    if (!registro) throw new ErroClaro('Este backup não foi recebido neste navegador.')
     if ((await permissao(registro.pasta)) !== 'granted' && !(await pedirPermissao(registro.pasta))) {
-      throw new Error('Sem permissão para ler a pasta do backup.')
+      throw new ErroClaro('Sem permissão para ler a pasta do backup.')
     }
     const destino = await escolherPasta()
     if (!destino) return
@@ -312,7 +318,7 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
       const ignorados = r.ignorados?.length ? `; ${r.ignorados.length} ignorado(s) por terem nome que o Windows não aceita` : ''
       marcar(id, { extracao: { situacao: 'EXTRAIDO', destino: destino.name, arquivos: r.arquivos, bytes: r.bytes, mensagem: `${r.arquivos} arquivo(s) extraído(s) em “${destino.name}”${ignorados}.` } })
     } catch (e) {
-      marcar(id, { extracao: { situacao: 'FALHOU', destino: destino.name, mensagem: e.message } })
+      marcar(id, { extracao: { situacao: 'FALHOU', destino: destino.name, mensagem: mensagemDe(e) } })
     }
   }
 

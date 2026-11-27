@@ -83,8 +83,8 @@ public class ClienteGemini implements VerificadorDeChave {
                         + "projeto dessa chave.");
             }
             if (motivo.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED")) {
-                return new Resultado(Tipo.RECUSADA, "O Google não aceitou essa chave na API do Gemini "
-                        + "(ACCESS_TOKEN_TYPE_UNSUPPORTED). Crie outra chave no AI Studio, no mesmo projeto com faturamento, "
+                return new Resultado(Tipo.RECUSADA, "O Google não aceitou esse tipo de chave na API do "
+                        + "Gemini. Crie outra chave no AI Studio, no mesmo projeto com faturamento, "
                         + "e tente de novo; se continuar, avise o administrador.");
             }
             if (motivo.contains("BLOCKED") || motivo.contains("REFERER") || motivo.contains("IP_ADDRESS")) {
@@ -94,13 +94,15 @@ public class ClienteGemini implements VerificadorDeChave {
             if (motivo.contains("API_KEY_INVALID") || motivo.contains("API_KEY_EXPIRED") || status == 400) {
                 return new Resultado(Tipo.RECUSADA, "A chave é inválida, expirou ou foi apagada.");
             }
-            return new Resultado(Tipo.RECUSADA, "Sem permissão para usar a API do Gemini com essa chave (HTTP " + status
-                    + ").");
+            return new Resultado(Tipo.RECUSADA, "O Google não deu permissão para usar a API do Gemini com essa chave. Confira "
+                    + "no AI Studio se a chave é do projeto certo e se a API está ativada, ou crie outra chave.");
         }
         if (status >= 500) {
-            return new Resultado(Tipo.INDISPONIVEL, "O Google respondeu com erro " + status + ".");
+            return new Resultado(Tipo.INDISPONIVEL, "O Google está com problema agora e não conferiu a chave. Tente de novo "
+                    + "daqui a alguns minutos.");
         }
-        return new Resultado(Tipo.INDISPONIVEL, "Resposta inesperada do Google (HTTP " + status + ").");
+        return new Resultado(Tipo.INDISPONIVEL, "O Google respondeu de um jeito inesperado ao conferir a chave. Tente de "
+                + "novo daqui a alguns minutos; se continuar, avise o administrador.");
     }
 
     /** status e reasons do erro, em maiúsculas, para comparar; vazio se o corpo não for o JSON de erro do Google. */

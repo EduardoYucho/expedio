@@ -184,13 +184,13 @@ public class GoogleSheetsApi {
         }
         if (resposta.statusCode() == 429 || resposta.statusCode() >= 500) {
             throw new PlanilhaRemotaException("GOOGLE_INDISPONIVEL",
-                    "O Google está indisponível no momento (HTTP %d). O sistema tenta de novo sozinho."
-                            .formatted(resposta.statusCode()), true);
+                    "O Google está indisponível no momento. O sistema tenta de novo sozinho.", true);
         }
-        String detalhe = no.path("error_description").asText(no.path("error").asText("HTTP " + resposta.statusCode()));
+        String detalhe = no.path("error_description").asText(no.path("error").asText(""));
+        log.warn("O Google recusou a chave da conta de serviço: HTTP {} ({})", resposta.statusCode(), detalhe);
         throw new PlanilhaRemotaException("GOOGLE_CHAVE_RECUSADA",
-                "O Google recusou a chave da conta de serviço (%s). Confira a data e a hora do computador; se estiverem "
-                        .formatted(detalhe) + "certas, crie uma chave nova no Google Cloud e envie de novo.", false);
+                "O Google recusou a chave da conta de serviço. Confira a data e a hora do computador; se estiverem "
+                        + "certas, crie uma chave nova no Google Cloud e envie de novo.", false);
     }
 
     /** Traduz o erro da API para o que a pessoa precisa fazer. */
@@ -212,8 +212,7 @@ public class GoogleSheetsApi {
         }
         if (status == 429 || status >= 500) {
             return new PlanilhaRemotaException("GOOGLE_INDISPONIVEL",
-                    "O Google está indisponível ou limitou as gravações (HTTP %d). O sistema tenta de novo sozinho."
-                            .formatted(status), true);
+                    "O Google está indisponível ou limitou as gravações. O sistema tenta de novo sozinho.", true);
         }
         boolean apiDesativada = "SERVICE_DISABLED".equals(motivo) || mensagem.contains("has not been used in project")
                 || mensagem.contains("it is disabled");
@@ -241,8 +240,8 @@ public class GoogleSheetsApi {
         // o detalhe do Google vem em inglês e é técnico: vai para o log; a pessoa lê o que fazer
         log.warn("O Google recusou a gravação (HTTP {}): {}", status, mensagem.isBlank() ? "sem detalhes" : mensagem);
         return new PlanilhaRemotaException("GOOGLE_RECUSOU",
-                "O Google recusou a gravação da planilha (código %d). Tente \"Atualizar agora\"; se continuar, avise o administrador."
-                        .formatted(status), false);
+                "O Google recusou a gravação da planilha. Tente \"Atualizar agora\"; se continuar, avise o administrador.",
+                false);
     }
 
     private static PlanilhaRemotaException semConexao(Exception e) {

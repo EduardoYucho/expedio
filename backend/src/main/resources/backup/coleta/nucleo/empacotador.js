@@ -11,6 +11,7 @@
 
 import { Sha256 } from './sha256.js';
 import { cabecalho, preenchimento } from './tar.js';
+import { motivoDoErro } from './erros.js';
 
 export class PrecisaVoltar extends Error {
   constructor(caminho) {
@@ -238,5 +239,5 @@ export function motivoDe(erro) {
   if (nome === 'NotReadableError') return 'em uso ou travado pelo sistema';
   if (nome === 'NotAllowedError' || nome === 'SecurityError') return 'sem permissão';
   if (nome === 'NotFoundError') return 'apagado durante a cópia';
-  return erro.message || String(erro);
+  return motivoDoErro(erro, 'não foi possível ler');
 }

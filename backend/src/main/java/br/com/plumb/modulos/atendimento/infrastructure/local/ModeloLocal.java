@@ -375,7 +375,8 @@ public class ModeloLocal implements ModeloDeIA {
             }
             throw new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "A IA local não lê arquivos do tipo " + midia.tipoDeMidia() + ".");
         } catch (IOException | UncheckedIOException e) {
-            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "não foi possível ler o arquivo (" + e.getClass().getSimpleName() + ")");
+            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "o arquivo não pôde ser lido no servidor", null, 0,
+                    e.getClass().getSimpleName() + ": " + e.getMessage());
         }
     }
 

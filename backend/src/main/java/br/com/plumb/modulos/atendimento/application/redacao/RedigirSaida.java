@@ -193,11 +193,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
                                                String chave) {
         String contato = atendimento.resumo().contato();
         List<ConferenciaDoTexto.ImagemDisponivel> imagens = catalogo.imagens();
-        String material = MaterialDaRedacao.paraOAppDoGemini(atendimento.resumo().chamado(), contato,
-                atendimento.resumo().inicio(), atendimento.resumo().fim(), linha, imagens, null, clock.getZone());
-        String instrucao = material + "\n\n---\n\n" + PromptsDaRedacao.lembreteLocal(saida.tipo(), contato, atendente(linha));
-        PedidoAoModelo pedido = new PedidoAoModelo(configuracao.modelo(), PromptsDaRedacao.SISTEMA_LOCAL, instrucao,
-                PedidoAoModelo.SEM_ESQUEMA, null, false, null, null, configuracao.maxTokensSaida());
+        String lembrete = PromptsDaRedacao.lembreteLocal(saida.tipo(), contato, atendente(linha));
         ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(saida.tipo());
         long inicio = System.nanoTime();
         int entrada = 0;
@@ -205,26 +201,50 @@ public class RedigirSaida implements ExecutorDeTarefa {
         try {
             ConferenciaDoTexto.Bruto bruto = null;
             ConferenciaDoTexto.Conferido conferido = null;
-            for (int vez = 1; conferido == null; vez++) {
-                RespostaDoModelo resposta = modelo.gerar(chave, pedido);
-                entrada += resposta.tokensEntrada();
-                saidaDeTokens += resposta.tokensSaida();
+            int partes = 0;
+            // o material cabe no contexto estimado; se o modelo disser que não coube, as notas ficam mais curtas
+            for (double fator = 1.0; conferido == null; fator *= 0.6) {
+                MaterialLocal material = materialLocal(chave, atendimento, linha, imagens, lembrete, fator);
+                entrada += material.tokensEntrada();
+                saidaDeTokens += material.tokensSaida();
+                partes = material.partes();
+                PedidoAoModelo pedido = new PedidoAoModelo(configuracao.modelo(), PromptsDaRedacao.SISTEMA_LOCAL,
+                        material.texto() + "\n\n---\n\n" + lembrete, PedidoAoModelo.SEM_ESQUEMA, null, false, null, null,
+                        configuracao.maxTokensSaida());
                 try {
-                    bruto = TextoColadoDoGemini.ler(resposta.texto(), modeloDoTexto);
-                    conferido = conferir(saida.tipo(), contato, linha, imagens, bruto);
-                    if (conferido.texto().blocos().stream().allMatch(b -> b.texto().isBlank())) {
-                        throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "a resposta não tem texto");
+                    for (int vez = 1; conferido == null; vez++) {
+                        RespostaDoModelo resposta = modelo.gerar(chave, pedido);
+                        entrada += resposta.tokensEntrada();
+                        saidaDeTokens += resposta.tokensSaida();
+                        try {
+                            bruto = TextoColadoDoGemini.ler(resposta.texto(), modeloDoTexto);
+                            conferido = conferir(saida.tipo(), contato, linha, imagens, bruto);
+                            if (conferido.texto().blocos().stream().allMatch(b -> b.texto().isBlank())) {
+                                throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "a resposta não tem texto");
+                            }
+                        } catch (FalhaDoModelo falha) {
+                            if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
+                                throw falha;
+                            }
+                            conferido = null;
+                            log.info("Saída {}: o texto da IA local veio fora do formato ({}); pedindo de novo", saida.id(),
+                                    falha.paraOLog());
+                        }
                     }
                 } catch (FalhaDoModelo falha) {
-                    if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
+                    if (falha.tipo() != FalhaDoModelo.Tipo.MATERIAL_GRANDE || fator < 0.3) {
                         throw falha;
                     }
-                    conferido = null;
-                    log.info("Saída {}: o texto da IA local veio fora do formato ({}); pedindo de novo", saida.id(),
-                            falha.getMessage());
+                    log.info("Saída {}: o material não coube na IA local ({}); lendo em partes menores", saida.id(),
+                            falha.paraOLog());
                 }
             }
             TextoRedigido texto = conferido.texto();
+            if (partes > 0) {
+                texto = texto.comMaisAvisos(List.of("O atendimento é longo: a IA local "
+                        + (partes == 1 ? "resumiu a conversa" : "leu a conversa em " + partes + " partes, resumidas")
+                        + " antes de escrever. Confira se faltou algum detalhe importante."));
+            }
             // o texto corrido não traz a fonte de cada trecho: não é um aviso
             texto = texto.comAssunto(texto.assunto(), texto.avisos().stream().filter(a -> !a.contains("sem fonte")).toList());
             if (bruto.assunto().isBlank()) {
@@ -250,9 +270,49 @@ public class RedigirSaida implements ExecutorDeTarefa {
             return ResultadoDaTarefa.concluida();
         } catch (FalhaDoModelo falha) {
             log.info("Saída {} ({}): a IA local não redigiu ({}: {})", saida.id(), saida.tipo().codigo(), falha.tipo(),
-                    falha.getMessage());
+                    falha.paraOLog());
             return gemini.traduzir(falha, tarefa.usuarioId(), configuracao.modelo(), "redigir este texto");
         }
+    }
+
+    /** O que vai em volta do material no pedido da redação local (a estimativa fica para mais). */
+    static final int FOLGA_LOCAL = 1024;
+    /** O tanto que a IA local escreve de uma vez (o modelo local não passa disso). */
+    static final int SAIDA_LOCAL = 4096;
+
+    /** O material da redação local, inteiro ou em notas, e o que custou ler em partes. */
+    record MaterialLocal(String texto, int partes, int tokensEntrada, int tokensSaida) {
+    }
+
+    /**
+     * O material inteiro, quando cabe no que a IA local lê de uma vez; senão, as notas das partes no lugar dos itens.
+     *
+     * @param fator abaixo de 1, o material precisa ficar menor que a estimativa (o modelo disse que não coube)
+     */
+    MaterialLocal materialLocal(String chave, AtendimentoGuardado atendimento, LinhaDoTempo linha,
+                                List<ConferenciaDoTexto.ImagemDisponivel> imagens, String lembrete, double fator) {
+        var resumo = atendimento.resumo();
+        String inteiro = MaterialDaRedacao.paraOAppDoGemini(resumo.chamado(), resumo.contato(), resumo.inicio(), resumo.fim(),
+                linha, imagens, null, clock.getZone());
+        int fixo = Math.min(configuracao.maxTokensSaida(), SAIDA_LOCAL) + LeituraEmPartes.tokens(PromptsDaRedacao.SISTEMA_LOCAL)
+                + LeituraEmPartes.tokens(lembrete) + FOLGA_LOCAL;
+        int disponivel = (int) ((configuracao.contextoLocal() - fixo) * fator);
+        if (fator >= 1.0 && LeituraEmPartes.tokens(inteiro) <= disponivel) {
+            return new MaterialLocal(inteiro, 0, 0, 0);
+        }
+        String cabecalho = MaterialDaRedacao.cabecalho(resumo.chamado(), resumo.contato(), resumo.inicio(), resumo.fim(),
+                clock.getZone());
+        int orcamento = disponivel - LeituraEmPartes.tokens(cabecalho)
+                - LeituraEmPartes.tokens(MaterialDaRedacao.imagensParaOApp(imagens, null)) - 200;
+        if (orcamento < 1000) {
+            throw new FalhaDoModelo(FalhaDoModelo.Tipo.MATERIAL_GRANDE,
+                    "O atendimento é maior do que a IA local lê de uma vez, mesmo em partes.", null, 0,
+                    "sobram " + orcamento + " tokens para as notas com contexto de " + configuracao.contextoLocal());
+        }
+        LeituraEmPartes.Lido lido = new LeituraEmPartes(modelo, configuracao.modelo(), configuracao.contextoLocal())
+                .ler(chave, cabecalho, MaterialDaRedacao.itensEmTexto(linha, clock.getZone()), orcamento);
+        return new MaterialLocal(MaterialDaRedacao.comNotas(cabecalho, lido.notas(), imagens, null), lido.partes(),
+                lido.tokensEntrada(), lido.tokensSaida());
     }
 
     /** Quem atendeu: o último atendente que escreveu na conversa, fora o bot. */

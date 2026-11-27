@@ -117,7 +117,8 @@ class ClienteGeminiTest {
         Resultado resultado = cliente().testar(CHAVE);
 
         assertThat(resultado.tipo()).isEqualTo(Tipo.RECUSADA);
-        assertThat(resultado.detalhe()).contains("ACCESS_TOKEN_TYPE_UNSUPPORTED").contains("Crie outra chave");
+        assertThat(resultado.detalhe()).contains("esse tipo de chave").contains("Crie outra chave")
+                .doesNotContain("ACCESS_TOKEN_TYPE_UNSUPPORTED");
     }
 
     @Test
