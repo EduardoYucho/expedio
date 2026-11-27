@@ -72,7 +72,8 @@ class TranscritorWhisper implements Transcritor {
             }
             return lerTrechos(Files.readString(saida, StandardCharsets.UTF_8));
         } catch (IOException e) {
-            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "não foi possível rodar o Whisper (" + e.getClass().getSimpleName() + ")");
+            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "o programa de transcrição (Whisper) não abriu neste computador",
+                    null, 0, e.getClass().getSimpleName() + ": " + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new FalhaDoModelo(Tipo.INDISPONIVEL, "a transcrição foi interrompida");

@@ -140,7 +140,8 @@ class PlanilhasGoogleTest {
                 () -> planilhas.configurar(google.chaveJson()));
         assertThat(recusa.getCodigo()).isEqualTo("GOOGLE_CHAVE_RECUSADA");
         assertThat(recusa.isTransitoria()).isFalse();
-        assertThat(recusa).hasMessageContaining("Invalid JWT Signature");
+        // o que o Google disse (em inglês) vai para o log; a pessoa lê o motivo e o que fazer
+        assertThat(recusa).hasMessageContaining("data e a hora do computador").hasMessageNotContaining("Invalid JWT");
         assertThat(planilhas.conta()).isEmpty();
         assertThat(pasta.resolve("google/conta-de-servico.json")).doesNotExist();
     }

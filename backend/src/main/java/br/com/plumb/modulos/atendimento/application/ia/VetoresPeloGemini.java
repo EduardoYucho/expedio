@@ -60,14 +60,14 @@ public class VetoresPeloGemini implements VetoresDeTexto {
                         + "(atendimento.ia.local.modelo-vetor).");
                 case IA_LOCAL_PARADA, PLACA_OCUPADA, INDISPONIVEL, SEM_INTERNET, LIMITE ->
                         new FalhaNoVetor(FalhaNoVetor.Motivo.INDISPONIVEL, "A IA local não respondeu agora ("
-                                + falha.getMessage() + ").");
-                default -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, falha.getMessage());
+                                + ChamadasAoGemini.semPonto(falha.getMessage()) + "). Tente de novo daqui a pouco.");
+                default -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, ChamadasAoGemini.frase(falha.getMessage()));
             };
         }
         return switch (falha.tipo()) {
             case CHAVE_RECUSADA -> {
                 chaves.atualizarSituacao(usuarioId, SituacaoDaChave.RECUSADA, clock.instant());
-                yield new FalhaNoVetor(FalhaNoVetor.Motivo.CHAVE_RECUSADA, falha.getMessage() + " Confira ou cadastre de "
+                yield new FalhaNoVetor(FalhaNoVetor.Motivo.CHAVE_RECUSADA, ChamadasAoGemini.frase(falha.getMessage()) + " Confira ou cadastre de "
                         + "novo em Atendimentos → Minha chave do Gemini.");
             }
             case LIMITE -> new FalhaNoVetor(FalhaNoVetor.Motivo.LIMITE, "O Gemini pediu para esperar (limite por minuto).",
@@ -79,10 +79,10 @@ public class VetoresPeloGemini implements VetoresDeTexto {
             }
             case SEM_CREDITO -> new FalhaNoVetor(FalhaNoVetor.Motivo.COTA_DIARIA, "Os créditos da chave do Gemini acabaram.");
             case INDISPONIVEL, SEM_INTERNET -> new FalhaNoVetor(FalhaNoVetor.Motivo.INDISPONIVEL, "O Gemini não respondeu "
-                    + "agora (" + falha.getMessage() + ").");
+                    + "agora (" + ChamadasAoGemini.semPonto(falha.getMessage()) + "). Tente de novo daqui a pouco.");
             case MODELO_INEXISTENTE -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, "O modelo de vetores " + nomeDoModelo
                     + " não existe ou não está liberado para a chave. Avise o administrador (conhecimento.vetor.modelo).");
-            default -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, falha.getMessage());
+            default -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, ChamadasAoGemini.frase(falha.getMessage()));
         };
     }
 }

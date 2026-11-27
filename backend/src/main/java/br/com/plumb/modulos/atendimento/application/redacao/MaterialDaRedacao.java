@@ -50,7 +50,50 @@ final class MaterialDaRedacao {
     static String paraOAppDoGemini(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
                            List<ConferenciaDoTexto.ImagemDisponivel> imagens, String video, ZoneId fuso) {
         StringBuilder t = conversa(chamado, contato, inicio, fim, linha, fuso);
-        t.append("\nImagens que o texto pode mostrar (escreva [Imagem <identificador>: o que ela mostra] numa linha "
+        return t.append('\n').append(imagensParaOApp(imagens, video)).toString().stripTrailing();
+    }
+
+    /**
+     * O material da IA local num atendimento longo: o cabeçalho, as notas lidas em partes no lugar dos itens e as
+     * imagens que o texto pode mostrar.
+     */
+    static String comNotas(String cabecalho, String notas, List<ConferenciaDoTexto.ImagemDisponivel> imagens, String video) {
+        return (cabecalho + "\n\nO atendimento é longo e foi lido antes em partes: no lugar das mensagens e dos arquivos "
+                + "vêm as notas de cada parte, em ordem, cada nota com os identificadores entre colchetes dos itens de onde "
+                + "ela veio.\n\n" + notas.strip() + "\n\n" + imagensParaOApp(imagens, video)).stripTrailing();
+    }
+
+    /** "Atendimento do chamado X no Digisac, com o contato "Y", de 01/10/2026 09:00 a 01/10/2026 10:00." */
+    static String cabecalho(String chamado, String contato, Instant inicio, Instant fim, ZoneId fuso) {
+        StringBuilder t = new StringBuilder();
+        t.append("Atendimento do chamado ").append(chamado == null ? "não identificado" : chamado)
+                .append(" no Digisac, com o contato \"").append(contato == null || contato.isBlank() ? "não identificado" : contato)
+                .append('"');
+        if (inicio != null) {
+            t.append(", de ").append(DATA_E_HORA.format(inicio.atZone(fuso)));
+            if (fim != null) {
+                t.append(" a ").append(DATA_E_HORA.format(fim.atZone(fuso)));
+            }
+        }
+        return t.append('.').toString();
+    }
+
+    /** Cada item da linha do tempo em texto, na ordem; os sem horário vêm no fim, marcados. */
+    static List<String> itensEmTexto(LinhaDoTempo linha, ZoneId fuso) {
+        List<String> itens = new java.util.ArrayList<>();
+        for (ItemDaLinha item : linha.itens()) {
+            itens.add(item(item, fuso));
+        }
+        for (ItemDaLinha item : linha.semHorario()) {
+            itens.add("(material sem horário: o momento não é conhecido) " + item(item, fuso));
+        }
+        return itens;
+    }
+
+    /** A lista das imagens que o texto pode mostrar, com a marcação da habilidade. */
+    static String imagensParaOApp(List<ConferenciaDoTexto.ImagemDisponivel> imagens, String video) {
+        StringBuilder t = new StringBuilder();
+        t.append("Imagens que o texto pode mostrar (escreva [Imagem <identificador>: o que ela mostra] numa linha "
                 + "sozinha, logo depois do trecho que ela ilustra):\n");
         if (imagens.isEmpty()) {
             t.append("Nenhuma imagem: não marque imagens no texto.\n");
@@ -63,23 +106,14 @@ final class MaterialDaRedacao {
             t.append("Momentos dos vídeos: para mostrar a tela de um vídeo num instante, use o identificador do vídeo "
                     + "com os minutos e segundos, como [Imagem ").append(video).append("@00:15: o que a tela mostra].\n");
         }
-        return t.toString().stripTrailing();
+        return t.toString();
     }
 
     /** O cabeçalho e os itens da linha do tempo, em ordem, e o material sem horário. */
     private static StringBuilder conversa(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
                                           ZoneId fuso) {
-        StringBuilder t = new StringBuilder();
-        t.append("Atendimento do chamado ").append(chamado == null ? "não identificado" : chamado)
-                .append(" no Digisac, com o contato \"").append(contato == null || contato.isBlank() ? "não identificado" : contato)
-                .append('"');
-        if (inicio != null) {
-            t.append(", de ").append(DATA_E_HORA.format(inicio.atZone(fuso)));
-            if (fim != null) {
-                t.append(" a ").append(DATA_E_HORA.format(fim.atZone(fuso)));
-            }
-        }
-        t.append(".\n\nMaterial, em ordem (cada item com o identificador entre colchetes):\n");
+        StringBuilder t = new StringBuilder(cabecalho(chamado, contato, inicio, fim, fuso));
+        t.append("\n\nMaterial, em ordem (cada item com o identificador entre colchetes):\n");
         if (linha.itens().isEmpty()) {
             t.append("\n(nenhuma mensagem)\n");
         }

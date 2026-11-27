@@ -1,6 +1,7 @@
 // Um compactador zstd por worker: a página usa alguns em paralelo (metade dos núcleos do processador, até 4).
 import { Module } from './vendor/zstd.js';
 import { criarCompactador } from './nucleo/zstd-compactar.js';
+import { motivoDoErro } from './nucleo/erros.js';
 
 const pronto = new Promise((resolver) => {
   Module.onRuntimeInitialized = resolver;
@@ -19,7 +20,8 @@ self.onmessage = async (evento) => {
     const quadro = compactar(dados, nivel);
     self.postMessage({ id, quadro }, [quadro.buffer]);
   } catch (erro) {
-    self.postMessage({ id, erro: String((erro && erro.message) || erro) });
+    console.error(erro);
+    self.postMessage({ id, erro: `A compactação falhou: ${motivoDoErro(erro)}.` });
   }
 };
 

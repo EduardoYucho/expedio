@@ -200,6 +200,39 @@ class IaLocalDoPdfAoTextoTest {
                 .anyMatch(a -> a.contains("imagem citada")); // a que não existe (A9) sai do texto, com aviso
     }
 
+    /**
+     * O Ollama disse que o material passou do contexto (o caso do atendimento de 388 mensagens): a conversa é lida em
+     * partes, resumida em notas, e o texto sai a partir delas, com o aviso; nada de erro em inglês na tela.
+     */
+    @Test
+    void materialQueNaoCabeNoContextoELidoEmPartesEOTextoSaiMesmoAssim() {
+        java.util.concurrent.atomic.AtomicBoolean recusou = new java.util.concurrent.atomic.AtomicBoolean();
+        modelo.padrao(p -> {
+            boolean redacaoInteira = p.esquemaJson().isBlank() && p.instrucao().contains("Escreva agora")
+                    && !p.instrucao().contains("foi lido antes em partes");
+            if (redacaoInteira && recusou.compareAndSet(false, true)) {
+                throw new FalhaDoModelo(FalhaDoModelo.Tipo.MATERIAL_GRANDE,
+                        "O material passou do tanto que a IA local lê de uma vez.", null, 400,
+                        "the prompt is longer than the context length currently available to the model");
+            }
+            return ModeloDeMentira.respostaPadrao(p);
+        });
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+
+        assertThat(saida(id, "resumo").situacao()).isEqualTo("pronta");
+        assertThat(redacoes()).anySatisfy(p -> assertThat(p.instrucaoDoSistema()).contains("chega em partes"));
+        assertThat(redacoes()).last().satisfies(p -> assertThat(p.instrucao()).contains("foi lido antes em partes")
+                .contains("Imagens que o texto pode mostrar").contains("Escreva agora o \"resumo\""));
+        SaidaView texto = new GerenciarSaidas(atendimentos, saidas, new PastaEmDisco(raiz), configuracaoDaRedacao, json)
+                .detalhe(maria, id, saida(id, "resumo").id());
+        assertThat(texto.avisos()).anyMatch(a -> a.startsWith("O atendimento é longo: a IA local resumiu a conversa"));
+        assertThat(texto.avisos()).noneMatch(a -> a.contains("context length"));
+    }
+
     @Test
     void oChamadoDeErroEmTextoSaiComAsPartesNaOrdem() {
         UUID id = criar();

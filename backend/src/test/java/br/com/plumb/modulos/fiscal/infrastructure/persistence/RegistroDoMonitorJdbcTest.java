@@ -107,7 +107,7 @@ class RegistroDoMonitorJdbcTest {
                 List.of(new Aviso(Documento.NFE, "Não há manutenção prevista.", T, T))));
         Instant depois = T.plusSeconds(300);
         registro.gravar(rodada(depois, List.of(), List.of(), List.of(), List.of(),
-                List.of(new SituacaoDaFonte("painel-svrs-nfe", depois, null, "O portal respondeu HTTP 503.")),
+                List.of(new SituacaoDaFonte("painel-svrs-nfe", depois, null, "O portal respondeu com erro: ele está fora do ar ou em manutenção.")),
                 List.of(new Aviso(Documento.NFE, "Não há manutenção prevista.", depois, depois))));
 
         assertThat(registro.fontes()).singleElement().satisfies(f -> {

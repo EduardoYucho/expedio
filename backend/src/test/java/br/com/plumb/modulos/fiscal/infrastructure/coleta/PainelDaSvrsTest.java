@@ -125,7 +125,7 @@ class PainelDaSvrsTest {
     void problemas() throws IOException {
         FonteDeLeituras.Resultado indisponivel = painel(Documento.MDFE, "/Mdfe/Disponibilidade").ler(AGORA);
         assertThat(indisponivel.alcancou()).isTrue();
-        assertThat(indisponivel.erro()).isEqualTo("O portal respondeu HTTP 503.");
+        assertThat(indisponivel.erro()).isEqualTo(PainelDaSvrs.PORTAL_COM_ERRO);
         assertThat(indisponivel.leituras()).isEmpty();
         assertThat(indisponivel.documentoDoAviso()).as("sem leitura, o aviso anterior fica").isNull();
         assertThat(pedidosAoMdfe.get()).as("uma nova tentativa, e só uma").isEqualTo(2);

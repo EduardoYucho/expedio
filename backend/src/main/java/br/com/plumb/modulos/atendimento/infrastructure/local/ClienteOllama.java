@@ -120,9 +120,11 @@ class ClienteOllama {
         } catch (IOException e) {
             String motivo = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             if (motivo.toLowerCase(java.util.Locale.ROOT).contains("connection refused")) {
-                throw new FalhaDoModelo(Tipo.IA_LOCAL_PARADA, "O Ollama não está respondendo em " + base + ".");
+                throw new FalhaDoModelo(Tipo.IA_LOCAL_PARADA, "O Ollama não está respondendo em " + base + ".", null, 0,
+                        motivo);
             }
-            throw new FalhaDoModelo(Tipo.INDISPONIVEL, "a conexão com a IA local caiu");
+            throw new FalhaDoModelo(Tipo.INDISPONIVEL, "a conexão com a IA local caiu", null, 0,
+                    e.getClass().getSimpleName() + ": " + motivo);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new FalhaDoModelo(Tipo.INDISPONIVEL, "o pedido à IA local foi interrompido");
@@ -141,13 +143,31 @@ class ClienteOllama {
         }
         String erro = erroDe(corpo);
         log.warn("IA local: {} respondeu HTTP {} ({})", oQue, status, erro);
-        if (status == 404 || erro.contains("not found") && erro.contains("model")) {
-            throw new FalhaDoModelo(Tipo.MODELO_INEXISTENTE, erro, null, status);
+        throw falhaDe(status, erro);
+    }
+
+    /**
+     * O erro do Ollama (em inglês) traduzido no motivo para a pessoa; o texto original fica só no detalhe (log).
+     */
+    static FalhaDoModelo falhaDe(int status, String erro) {
+        String e = erro == null ? "" : erro.toLowerCase(java.util.Locale.ROOT);
+        if (e.contains("context length") || e.contains("context window") || e.contains("prompt is too long")
+                || e.contains("exceeds the context")) {
+            return new FalhaDoModelo(Tipo.MATERIAL_GRANDE, "O material passou do tanto que a IA local lê de uma vez.",
+                    null, status, erro);
+        }
+        if (status == 404 || e.contains("not found") && e.contains("model")) {
+            return new FalhaDoModelo(Tipo.MODELO_INEXISTENTE, "O modelo da IA local não está instalado no Ollama.",
+                    null, status, erro);
+        }
+        if (e.contains("memory") || e.contains("out of memory") || e.contains("cuda") || e.contains("vram")) {
+            return new FalhaDoModelo(Tipo.INDISPONIVEL, "a IA local ficou sem memória na placa de vídeo para responder",
+                    null, status, erro);
         }
         if (status == 400) {
-            throw new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "A IA local recusou o pedido (" + erro + ").", null, status);
+            return new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "A IA local não aceitou o pedido.", null, status, erro);
         }
-        throw new FalhaDoModelo(Tipo.INDISPONIVEL, "a IA local falhou ao responder (" + erro + ")", null, status);
+        return new FalhaDoModelo(Tipo.INDISPONIVEL, "a IA local falhou ao responder", null, status, erro);
     }
 
     private String erroDe(String corpo) {

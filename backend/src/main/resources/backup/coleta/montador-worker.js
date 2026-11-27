@@ -6,6 +6,7 @@
 import { Module } from './vendor/zstd.js';
 import { criarDescompactador } from './nucleo/zstd-descompactar.js';
 import { montar, extrair, nomeDaParte, Conferencia } from './nucleo/montador.js';
+import { ErroClaro, motivoDoErro } from './nucleo/erros.js';
 
 const pronto = new Promise((resolver) => {
   Module.onRuntimeInitialized = resolver;
@@ -57,7 +58,7 @@ async function acaoMontar({ pasta, nome, quantidade, relatorio }) {
 async function acaoExtrair({ pasta, nome, destino }) {
   const relatorio = JSON.parse(new TextDecoder().decode(await lerArquivo(pasta, `${nome}.json`)));
   const quadros = relatorio.quadros || [];
-  if (!quadros.length) throw new Error(`O relatório ${nome}.json não traz o índice do arquivo.`);
+  if (!quadros.length) throw new ErroClaro(`O relatório ${nome}.json não traz o índice do arquivo.`);
   const arquivo = await (await pasta.getFileHandle(`${nome}.tar.zst`)).getFile();
   const inicios = [];
   let o = 0;
@@ -148,7 +149,8 @@ async function falhouSessao(erro) {
       /* nada */
     }
   }
-  self.postMessage({ fim: true, erro: `${erro.name || 'Erro'}: ${erro.message || erro}` });
+  console.error(erro);
+  self.postMessage({ fim: true, erro: falhou(erro) });
 }
 
 function naSessao(pedido) {
@@ -184,6 +186,13 @@ self.onmessage = async (evento) => {
     const resultado = pedido.acao === 'extrair' ? await acaoExtrair(pedido) : await acaoMontar(pedido);
     self.postMessage({ fim: true, resultado });
   } catch (erro) {
-    self.postMessage({ fim: true, erro: `${erro.name || 'Erro'}: ${erro.message || erro}` });
+    console.error(erro);
+    self.postMessage({ fim: true, erro: falhou(erro) });
   }
 };
+
+/** A frase para a tela (o detalhe técnico fica no console). */
+function falhou(erro) {
+  const motivo = motivoDoErro(erro);
+  return `${motivo.charAt(0).toUpperCase()}${motivo.slice(1)}.`;
+}

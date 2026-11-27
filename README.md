@@ -397,7 +397,12 @@ com a pesquisa exata:
   (`PLACA_OCUPADA`, "Aguardando a placa de vídeo ficar livre"), sem gastar tentativa, e confere de novo a cada 2
   min; o modelo sai da placa na hora e, depois do último uso, em 2 min (`manter-carregado`). Ollama parado:
   `IA_LOCAL_PARADA` (novas tentativas; esgotadas, pausa com o que fazer). Modelo não instalado: pausa
-  (`IA_LOCAL_SEM_MODELO`). Com a IA local, a tela não mostra a chave do Gemini, o painel do app nem os tokens
+  (`IA_LOCAL_SEM_MODELO`). **Atendimento longo** (mais do que os `atendimento.ia.local.contexto` tokens, 24 mil, que
+  o modelo lê de uma vez): a conversa é lida em partes que cabem, a IA escreve as notas de cada parte (com os
+  identificadores [M12], [A3]), e o texto sai das notas, com o aviso "O atendimento é longo..." em "Confira antes de
+  usar" (`LeituraEmPartes`, prompt `notas-v1`). Se o Ollama ainda disser que não coube, as notas ficam mais curtas e
+  o pedido vai de novo. **Erros**: a tela mostra só o motivo em português e o que fazer; o que o Ollama, o Google
+  ou o Java disseram (em inglês, com códigos) fica no log (`FalhaDoModelo.detalhe`). Com a IA local, a tela não mostra a chave do Gemini, o painel do app nem os tokens
   (`/meu-acesso` informa `iaLocal`). As análises e os textos feitos pelo Gemini antes continuam; uma falha do
   Gemini volta a ser tentada pela IA local no Processar ou no Retomar. O `plumb` mostra a situação ("IA local:
   Ollama com gemma4:12b e embeddinggemma"; "Áudios: Whisper"). **Instalação** (uma vez, ~10 GB): `winget install

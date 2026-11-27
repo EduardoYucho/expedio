@@ -296,7 +296,8 @@ class AnalisarArquivoTest {
                 .falhar(new FalhaDoModelo(FalhaDoModelo.Tipo.MODELO_INEXISTENTE, "404"));
 
         assertThat(executar(print)).isEqualTo(ResultadoDaTarefa.definitiva("GEMINI_BLOQUEOU",
-                "O Gemini recusou analisar a imagem a.png (motivo: segurança)."));
+                "O Gemini se recusou a analisar a imagem a.png por uma regra do Google (segurança). Confira se o material "
+                        + "tem algo que o Google não aceita; se não tiver, clique em Tentar de novo ou use Gerar pelo app do Gemini."));
         assertThat(executar(print)).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaTemporaria.class, t -> {
             assertThat(t.codigo()).isEqualTo("GEMINI_INDISPONIVEL");
             assertThat(t.aoEsgotar()).contains("sem analisar a imagem a.png").contains("Clique em Retomar");

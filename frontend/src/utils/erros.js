@@ -26,9 +26,49 @@ export const avisos = reactive({
  * Use sempre no lugar de `e.message`: um defeito da tela não pode aparecer como "Cannot read properties of null".
  */
 export function mensagemDe(erro, padrao = GENERICA) {
-  if (erro instanceof ApiError) return erro.message
+  if (erro instanceof ApiError || erro?.claro) return erro.message
+  const motivo = MOTIVOS_DO_NAVEGADOR[erro?.name]
+  if (motivo) {
+    console.warn('[tela]', erro)
+    return `${motivo.charAt(0).toUpperCase()}${motivo.slice(1)}.`
+  }
   relatar(erro, 'acao')
   return padrao
+}
+
+/**
+ * Um erro com a mensagem escrita para a pessoa, pela própria tela (ex.: "Escolha a pasta onde o backup vai ficar."):
+ * {@link mensagemDe} mostra como está. Use no lugar de `new Error(...)` sempre que a mensagem for para a tela.
+ */
+export class ErroClaro extends Error {
+  constructor(mensagem) {
+    super(mensagem)
+    this.name = 'ErroClaro'
+    this.claro = true
+  }
+}
+
+/** Os erros do próprio navegador (pastas, arquivos, rede) que têm um motivo claro para a pessoa. */
+const MOTIVOS_DO_NAVEGADOR = {
+  NotReadableError: 'o arquivo está aberto em outro programa ou travado pelo Windows',
+  NotAllowedError: 'o navegador não deu permissão para usar a pasta',
+  SecurityError: 'o navegador não deu permissão para usar a pasta',
+  NotFoundError: 'o arquivo ou a pasta foi apagado ou movido',
+  QuotaExceededError: 'acabou o espaço no disco',
+  NoModificationAllowedError: 'a pasta não aceita gravação (é somente leitura ou está em uso por outro programa)',
+  InvalidModificationError: 'a pasta não aceita gravação (é somente leitura ou está em uso por outro programa)',
+  InvalidStateError: 'o arquivo ou a pasta mudou durante a operação',
+  TypeMismatchError: 'o item não é do tipo esperado (um arquivo no lugar de uma pasta)',
+  AbortError: 'a operação foi cancelada',
+  TimeoutError: 'o tempo esgotou',
+  NetworkError: 'a conexão caiu',
+}
+
+/** O motivo de um erro, sem ponto, para entrar numa frase ("Não consegui abrir a pasta: <motivo>."). */
+export function motivoDe(erro) {
+  const t = mensagemDe(erro, 'aconteceu um erro inesperado nesta tela').replace(/\.$/, '')
+  // "O arquivo..." vira "o arquivo...", mas "IA..." fica como está
+  return /^.[A-Z]/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1)
 }
 
 /** O pedido foi cancelado pela própria tela (não é erro para mostrar). */

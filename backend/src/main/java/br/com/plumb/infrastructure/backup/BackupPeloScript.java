@@ -75,7 +75,9 @@ class BackupPeloScript implements ExecutorDoBackup {
                 return new Execucao(processo.exitValue(), linhas);
             }
         } catch (IOException e) {
-            return new Execucao(-1, List.of("Backup não feito: o PowerShell não pôde ser aberto (" + e.getMessage() + ")."));
+            log.warn("Backup: o PowerShell não abriu ({})", e.toString());
+            return new Execucao(-1, List.of("Backup não feito: o PowerShell não abriu neste computador. Confira se o "
+                    + "Windows PowerShell está instalado e se o antivírus não o bloqueou."));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new Execucao(-1, List.of("Backup não feito: o sistema estava parando."));

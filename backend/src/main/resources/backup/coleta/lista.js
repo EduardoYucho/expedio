@@ -1,6 +1,8 @@
 // Percorre a pasta escolhida (sem ler conteúdo): nome, tamanho e data de cada arquivo, agrupados pela pasta de
 // primeiro nível (AppSrc, Data, DDSrc...), para a tela de escolha e para a leitura depois.
 
+import { motivoDoErro } from './nucleo/erros.js';
+
 export const RAIZ_SOLTOS = '__arquivos-da-raiz__';
 
 function abridor(handle) {
@@ -48,7 +50,7 @@ export async function listar(pastaRaiz, aoAvancar = () => {}) {
         }
       }
     } catch (erro) {
-      naoLidos.push({ caminho: `${raiz}/${relativo}`, motivo: `pasta não pôde ser listada (${erro.name || erro.message})` });
+      naoLidos.push({ caminho: `${raiz}/${relativo}`, motivo: `pasta não pôde ser listada (${motivoDoErro(erro, 'erro ao ler a pasta')})` });
     }
     for (let i = 0; i < arquivosDaPasta.length; i += 32) {
       const lote = arquivosDaPasta.slice(i, i + 32);

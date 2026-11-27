@@ -395,7 +395,7 @@ public class ModeloGemini implements ModeloDeIA {
         }
         String bloqueio = raiz.path("promptFeedback").path("blockReason").asText("");
         if (!bloqueio.isEmpty()) {
-            throw new FalhaDoModelo(Tipo.BLOQUEOU, motivo(bloqueio));
+            throw new FalhaDoModelo(Tipo.BLOQUEOU, motivo(bloqueio), null, 0, bloqueio);
         }
         JsonNode candidato = raiz.path("candidates").path(0);
         if (candidato.isMissingNode()) {
@@ -403,7 +403,7 @@ public class ModeloGemini implements ModeloDeIA {
         }
         String fim = candidato.path("finishReason").asText("");
         if (MOTIVOS_DE_BLOQUEIO.contains(fim)) {
-            throw new FalhaDoModelo(Tipo.BLOQUEOU, motivo(fim));
+            throw new FalhaDoModelo(Tipo.BLOQUEOU, motivo(fim), null, 0, fim);
         }
         if ("MAX_TOKENS".equals(fim)) {
             throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "A resposta do Gemini veio cortada (passou do tamanho máximo).");
@@ -424,7 +424,7 @@ public class ModeloGemini implements ModeloDeIA {
     }
 
     private static String motivo(String codigo) {
-        return MOTIVOS.getOrDefault(codigo, codigo.toLowerCase(Locale.ROOT).replace('_', ' '));
+        return MOTIVOS.getOrDefault(codigo, "uma regra de conteúdo do Google");
     }
 
     // ------------------------------------------------------------------------------------------------ erros
@@ -458,10 +458,11 @@ public class ModeloGemini implements ModeloDeIA {
                     : new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "O arquivo não está mais no Gemini.", null, status);
         }
         if (status == 408 || status >= 500) {
-            return new FalhaDoModelo(Tipo.INDISPONIVEL, "Gemini indisponível (HTTP " + status + ").", null, status);
+            return new FalhaDoModelo(Tipo.INDISPONIVEL, "O Gemini está fora do ar ou sobrecarregado agora.", null, status,
+                    erro.mensagem());
         }
-        String google = erro.mensagem().isBlank() ? "" : " (Google: " + cortar(erro.mensagem(), 200) + ")";
-        return new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "O Gemini não aceitou o pedido" + google + ".", null, status);
+        return new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "O Gemini não aceitou o pedido.", null, status,
+                cortar(erro.mensagem(), 300));
     }
 
     /** O erro no formato das APIs do Google. */

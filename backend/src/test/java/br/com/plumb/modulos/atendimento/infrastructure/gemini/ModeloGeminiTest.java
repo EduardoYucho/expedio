@@ -175,7 +175,8 @@ class ModeloGeminiTest {
                 .isEqualTo(Tipo.MODELO_INEXISTENTE);
         FalhaDoModelo recusado = falhaCom(400, ServidorDoGemini.erro(400, "INVALID_ARGUMENT", "Unsupported MIME type", null));
         assertThat(recusado.tipo()).isEqualTo(Tipo.PEDIDO_RECUSADO);
-        assertThat(recusado.getMessage()).contains("Unsupported MIME type");
+        assertThat(recusado.getMessage()).isEqualTo("O Gemini não aceitou o pedido.");
+        assertThat(recusado.detalhe()).as("o que o Google disse fica para o log").contains("Unsupported MIME type");
     }
 
     @Test

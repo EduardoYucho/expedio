@@ -3,6 +3,9 @@ package br.com.plumb.modulos.fiscal.infrastructure.coleta;
 import br.com.plumb.modulos.fiscal.application.coleta.FonteDeLeituras;
 import br.com.plumb.modulos.fiscal.domain.Documento;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.net.ssl.SSLException;
 import java.io.IOException;
 import java.net.ConnectException;
@@ -30,11 +33,12 @@ import java.util.regex.Pattern;
  */
 public class PainelDaSvrs implements FonteDeLeituras {
 
+    private static final Logger log = LoggerFactory.getLogger(PainelDaSvrs.class);
+
     /** O painel mostra a hora de Brasília. */
     static final ZoneId FUSO = ZoneId.of("America/Sao_Paulo");
     static final String IDENTIFICACAO = "Plumb-MonitorFiscal/1.0 (uma consulta a cada 5 minutos)";
     private static final int TAMANHO_MAXIMO = 5 * 1024 * 1024;
-    private static final String RESPONDEU_HTTP_5 = "O portal respondeu HTTP 5";
     private static final Pattern CHARSET = Pattern.compile("(?i)charset\\s*=\\s*\"?([\\w.:-]+)");
 
     private final Documento documento;
@@ -90,7 +94,7 @@ public class PainelDaSvrs implements FonteDeLeituras {
     }
 
     private static boolean passageira(Resultado r) {
-        return r.erro() != null && (!r.alcancou() || r.erro().startsWith(RESPONDEU_HTTP_5));
+        return r.erro() != null && (!r.alcancou() || r.erro().equals(PORTAL_COM_ERRO));
     }
 
     private Resultado tentar(Instant agora) {
@@ -109,19 +113,23 @@ public class PainelDaSvrs implements FonteDeLeituras {
             return Resultado.falhou(nome(), "O portal não respondeu em %d s.".formatted(tempoLimite.toSeconds()));
         } catch (SSLException e) {
             // houve resposta do outro lado: o problema é a conexão segura (ex.: certificado em que este Java não confia)
-            return new Resultado(nome(), true, "Falha na conexão segura com o portal: " + mensagem(e), List.of(),
-                    null, null);
+            log.warn("Painel da SVRS: a conexão segura falhou ({})", mensagem(e));
+            return new Resultado(nome(), true, "A conexão segura com o portal falhou: este computador não aceitou o "
+                    + "certificado do portal ou a conexão foi cortada no meio.", List.of(), null, null);
         } catch (ConnectException e) {
             return Resultado.falhou(nome(), causa(e, UnknownHostException.class).isPresent()
-                    ? "Endereço do portal não encontrado (DNS)." : "Não conectou ao portal: " + mensagem(e));
+                    ? "O endereço do portal não foi encontrado: confira a internet deste computador."
+                    : naoConectou(e));
         } catch (IOException e) {
-            return Resultado.falhou(nome(), "Erro de rede ao ler o portal: " + mensagem(e));
+            log.warn("Painel da SVRS: a leitura caiu ({})", mensagem(e));
+            return Resultado.falhou(nome(), "A conexão com o portal caiu no meio da leitura.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Resultado.falhou(nome(), "Leitura interrompida.");
         }
         if (resposta.statusCode() != 200) {
-            return new Resultado(nome(), true, "O portal respondeu HTTP %d.".formatted(resposta.statusCode()),
+            log.info("Painel da SVRS: o portal respondeu HTTP {}", resposta.statusCode());
+            return new Resultado(nome(), true, resposta.statusCode() >= 500 ? PORTAL_COM_ERRO : PORTAL_RECUSOU,
                     List.of(), null, null);
         }
         byte[] corpo = resposta.body();
@@ -143,6 +151,15 @@ public class PainelDaSvrs implements FonteDeLeituras {
         return Optional.empty();
     }
 
+    static final String PORTAL_COM_ERRO = "O portal respondeu com erro: ele está fora do ar ou em manutenção.";
+    static final String PORTAL_RECUSOU = "O portal não entregou a página do painel (o endereço pode ter mudado).";
+
+    private static String naoConectou(ConnectException e) {
+        log.warn("Painel da SVRS: não conectou ({})", mensagem(e));
+        return "Não conectou ao portal: ele recusou a conexão ou a internet deste computador está fora.";
+    }
+
+    /** O que o Java disse (só para o log). */
     private static String mensagem(Throwable e) {
         String m = e.getMessage();
         if ((m == null || m.isBlank()) && e.getCause() != null) {

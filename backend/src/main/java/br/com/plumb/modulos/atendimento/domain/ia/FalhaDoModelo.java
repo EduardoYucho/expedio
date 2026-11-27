@@ -6,6 +6,10 @@ import java.util.Objects;
 /**
  * Uma chamada ao modelo que não deu certo, já classificada pelo que fazer. A mensagem nunca leva a chave nem o
  * conteúdo enviado.
+ *
+ * <p>Regra: a mensagem ({@link #getMessage()}) é escrita por nós, em português, para a pessoa entender o motivo; o
+ * que o Google, o Ollama ou o Java disseram (em inglês, com códigos) vai só no {@link #detalhe()}, que é para o log
+ * e nunca chega à tela.
  */
 public class FalhaDoModelo extends RuntimeException {
 
@@ -35,22 +39,34 @@ public class FalhaDoModelo extends RuntimeException {
         /** IA local: o programa que roda o modelo neste computador (o Ollama) não respondeu. */
         IA_LOCAL_PARADA,
         /** IA local: a placa de vídeo está ocupada (um jogo aberto) e não sobra memória para o modelo. */
-        PLACA_OCUPADA
+        PLACA_OCUPADA,
+        /** O material passou do tanto que o modelo lê de uma vez (o contexto): dá para mandar em partes menores. */
+        MATERIAL_GRANDE
     }
 
     private final Tipo tipo;
     private final Duration esperar;
     private final int status;
+    private final String detalhe;
 
-    public FalhaDoModelo(Tipo tipo, String mensagem, Duration esperar, int status) {
+    /**
+     * @param mensagem o motivo, em português, para a pessoa
+     * @param detalhe  o que o outro lado disse (só para o log), ou null
+     */
+    public FalhaDoModelo(Tipo tipo, String mensagem, Duration esperar, int status, String detalhe) {
         super(mensagem);
         this.tipo = Objects.requireNonNull(tipo, "tipo");
         this.esperar = esperar;
         this.status = status;
+        this.detalhe = detalhe == null || detalhe.isBlank() ? null : detalhe.strip();
+    }
+
+    public FalhaDoModelo(Tipo tipo, String mensagem, Duration esperar, int status) {
+        this(tipo, mensagem, esperar, status, null);
     }
 
     public FalhaDoModelo(Tipo tipo, String mensagem) {
-        this(tipo, mensagem, null, 0);
+        this(tipo, mensagem, null, 0, null);
     }
 
     public Tipo tipo() {
@@ -65,5 +81,22 @@ public class FalhaDoModelo extends RuntimeException {
     /** O código HTTP da resposta (0 quando não houve resposta). */
     public int status() {
         return status;
+    }
+
+    /** O que o outro lado disse (técnico, em inglês às vezes): só para o log. Null quando não há. */
+    public String detalhe() {
+        return detalhe;
+    }
+
+    /** A mensagem com o detalhe técnico e o código HTTP, para o log. */
+    public String paraOLog() {
+        StringBuilder t = new StringBuilder(String.valueOf(getMessage()));
+        if (status > 0) {
+            t.append(" [HTTP ").append(status).append(']');
+        }
+        if (detalhe != null) {
+            t.append(" [").append(detalhe).append(']');
+        }
+        return t.toString();
     }
 }
